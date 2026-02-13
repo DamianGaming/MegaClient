@@ -1,0 +1,3 @@
+Place a bundled Java runtime here (Temurin JRE).
+Expected layout: jre/bin/java.exe (or javaw.exe) and jre/lib/...
+Use scripts/download-jre.ps1 to fetch automatically.
