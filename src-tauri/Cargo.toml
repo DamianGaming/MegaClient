@@ -1,0 +1,38 @@
+[package]
+name = "megaclient-tauri"
+version = "0.1.0"
+description = "MegaClient launcher - Rust rewrite"
+authors = ["MegaClient"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.8.3", features = ["shell-open-api", "updater"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Pin `time` to a Cargo-1.78-compatible release.
+# Newer `time` versions require Cargo's unstable `edition2024` feature.
+time = "=0.3.36"
+anyhow = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+urlencoding = "2.1"
+base64 = "0.22"
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "process", "io-util"] }
+dirs = "5.0"
+# NOTE: zip v2.4.x pulls in `time >=0.3.37` which can require unstable Cargo
+# features on older Cargo versions (e.g. 1.78). We pin zip to a compatible
+# 2.3.x release so it can resolve with `time = 0.3.36` below.
+zip = "=2.3.0"
+once_cell = "1.19"
+discord-rich-presence = "0.2"
+uuid = { version = "1.10", features = ["v4"] }
+futures-util = "0.3"
+ignore = "=0.4.24"
+sha1 = "0.10"
+hex = "0.4"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
