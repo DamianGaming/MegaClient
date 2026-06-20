@@ -2343,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "megaclient"
-version = "2.3.3"
+version = "2.3.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",

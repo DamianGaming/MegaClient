@@ -1,7 +1,7 @@
 {
   "name": "megaclient",
   "private": true,
-  "version": "2.3.3",
+  "version": "2.3.2",
   "type": "module",
   "description": "A native, performance-first Minecraft launcher powered by Tauri, Rust and React.",
   "scripts": {
