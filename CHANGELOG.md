@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.5
+
+- Built Windows release binaries as GUI applications so opening MegaClient no longer creates a terminal window whose closure also terminates the launcher. Development builds keep their terminal for diagnostics.
+- Preserve Modrinth's exact publisher-provided filenames for selected mods and every required dependency; filename collisions now stop with a clear error instead of silently renaming or overwriting another file.
+- Stream SHA-1 verification during downloads instead of reading completed files back into memory, reducing memory spikes for large mods and modpacks.
+- Throttle download-progress events to reduce native-to-UI event spam and make the launcher feel smoother during large dependency installs.
+- Skip redundant standalone update checks for dependency-only entries and cache sort keys while listing installed content.
+- Corrected the GitHub release action inputs and disabled automatic full rebuild retries for deterministic signing/configuration failures.
+
 ## 2.3.2
 
 - Fixed Windows release scripts falsely reporting that npm was missing by invoking npm through the active Node/npm entry point instead of spawning the `npm.cmd` shim directly.

@@ -1,1 +1,0 @@
-MegaClient signing test

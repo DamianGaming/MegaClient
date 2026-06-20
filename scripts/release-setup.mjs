@@ -137,7 +137,7 @@ async function main() {
 
   console.log('\nRelease setup complete.')
   console.log('To publish, use one command such as:')
-  console.log('npm run release -- 2.3.3\n')
+  console.log('npm run release -- 2.3.5\n')
 }
 
 main().catch(error => {

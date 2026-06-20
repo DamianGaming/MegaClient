@@ -1,6 +1,6 @@
 [package]
 name = "megaclient"
-version = "2.3.4"
+version = "2.3.5"
 description = "Native MegaClient Minecraft launcher"
 authors = ["MegaStudios"]
 edition = "2021"

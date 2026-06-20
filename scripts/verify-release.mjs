@@ -49,8 +49,23 @@ for (const permission of ['updater:default', 'process:default']) {
 }
 
 const workflow = await readFile('.github/workflows/release.yml', 'utf8')
-for (const token of ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_UPDATER_PUBLIC_KEY', 'updaterJsonPreferNsis', 'releaseDraft: false']) {
+for (const token of ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_UPDATER_PUBLIC_KEY', 'includeUpdaterJson: true', 'updaterJsonPreferNsis', 'retryAttempts: 0', 'releaseDraft: false']) {
   if (!workflow.includes(token)) fail(`release workflow does not reference ${token}`)
+}
+
+
+if (/uploadUpdaterJson|uploadUpdaterSignatures/.test(workflow)) {
+  fail('release workflow still uses unsupported tauri-action updater upload inputs')
+}
+
+const windowsMain = await readFile('src-tauri/src/main.rs', 'utf8')
+if (!windowsMain.includes('windows_subsystem = "windows"')) {
+  fail('Windows release builds are not configured as GUI-subsystem applications')
+}
+
+const modrinthService = await readFile('src-tauri/src/services/modrinth.rs', 'utf8')
+for (const token of ['exact_destination_for', 'Refusing to rename Modrinth file', 'PROGRESS_INTERVAL']) {
+  if (!modrinthService.includes(token)) fail(`Modrinth exact-filename/performance guard is missing: ${token}`)
 }
 
 if (!process.exitCode) console.log(`Release verification passed for MegaClient ${expected}`)

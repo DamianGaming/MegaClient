@@ -25,7 +25,7 @@ When an older MegaClient release already supports automatic updates, reuse the s
 Use a version higher than the current public version:
 
 ```powershell
-npm run release -- 2.3.3
+npm run release -- 2.3.5
 ```
 
 The command updates versions, checks the project, commits it, connects safely to an existing repository history, pushes the source and tag, then starts GitHub Actions.

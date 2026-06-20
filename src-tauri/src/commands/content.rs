@@ -208,12 +208,20 @@ async fn install_single_content(
         let current = content_file(instance_path, previous);
         let disabled = disabled_path(&current);
         if previous.version_id.as_deref() == Some(&resolved.version.id)
+            && previous.file_name == resolved.file.filename
             && (current.exists() || disabled.exists())
         {
+            let mut index_changed = false;
             if let Some(item) = index.items.iter_mut().find(|item| item.id == previous.id) {
-                item.dependency = item.dependency && dependency;
+                let next_dependency = item.dependency && dependency;
+                if item.dependency != next_dependency {
+                    item.dependency = next_dependency;
+                    index_changed = true;
+                }
             }
-            store::write_atomic(&index_path, &index)?;
+            if index_changed {
+                store::write_atomic(&index_path, &index)?;
+            }
             emit_progress(
                 app,
                 task_id,
@@ -229,7 +237,18 @@ async fn install_single_content(
         remove_path(&disabled)?;
     }
 
-    let destination = modrinth::destination_for(instance_path, kind, &resolved.file.filename);
+    let destination =
+        modrinth::exact_destination_for(instance_path, kind, &resolved.file.filename)?;
+    if let Some(conflict) = index.items.iter().find(|item| {
+        item.kind == kind
+            && item.file_name == resolved.file.filename
+            && item.project_id.as_deref() != Some(resolved.version.project_id.as_str())
+    }) {
+        return Err(message(format!(
+            "Cannot install {} because its exact filename {} is already used by {}. MegaClient will not rename dependency files.",
+            resolved.version.name, resolved.file.filename, conflict.name
+        )));
+    }
     let label = resolved.version.name.clone();
     let action = if dependency {
         "Installing required dependency"
@@ -293,6 +312,9 @@ pub async fn list_content(
         .iter()
         .enumerate()
         .filter_map(|(item_index, item)| {
+            if item.dependency {
+                return None;
+            }
             Some((
                 item_index,
                 item.project_id.clone()?,
@@ -342,11 +364,7 @@ pub async fn list_content(
     if let Some(kind) = kind {
         items.retain(|item| item.kind == kind);
     }
-    items.sort_by(|left, right| {
-        left.kind
-            .cmp(&right.kind)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    });
+    items.sort_by_cached_key(|item| (item.kind.clone(), item.name.to_lowercase()));
     Ok(items)
 }
 

@@ -175,7 +175,7 @@ async function mockInvoke<T>(command: string, args?: Record<string, unknown>): P
         javaRuntimes: [{ path: '/managed/java-21/bin/java', major: 21, vendor: 'Eclipse Temurin', managed: true, recommended: true }],
         gameStatus: { state: 'idle' },
         platform: 'preview',
-        appVersion: '2.3.4',
+        appVersion: '2.3.5',
         authConfigured: !showLoginPreview
       } as T
     }

@@ -92,8 +92,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
-          retryAttempts: 2
+          retryAttempts: 0
           args: --bundles nsis --features signed-updater --config src-tauri/tauri.release.conf.json

@@ -87,7 +87,7 @@ export default function App() {
   if (loading || !bootstrap || authState === "checking") {
     return (
       <div className="app-window app-window--loading">
-        <TitleBar version="2.3.4" />
+        <TitleBar version="2.3.5" />
         <div className="boot-screen">
           <div className="boot-mark">
             <LoaderCircle className="spin" size={28} />

@@ -1,16 +1,16 @@
-# MegaClient 2.3.2
+# MegaClient 2.3.5
 
-MegaClient 2.2 is a complete source rewrite of the launcher as a Tauri desktop application. The interface remains React + TypeScript, while authentication, game installation, Java management, file work, downloads, content management and process control move into a Rust backend.
+MegaClient is a complete source rewrite of the launcher as a Tauri desktop application. The interface remains React + TypeScript, while authentication, game installation, Java management, file work, downloads, content management and process control move into a Rust backend.
 
 
 ## Publishing a release
 
-Run `npm run release:setup` once, then publish future versions with `npm run release -- 2.3.3`. See [RELEASING.md](RELEASING.md).
+Run `npm run release:setup` once, then publish future versions with `npm run release -- 2.3.5`. See [RELEASING.md](RELEASING.md).
 
 ## Project structure
 
 ```text
-MegaClient-Tauri-Rewrite-2.3.2/
+MegaClient-Tauri-Rewrite-2.3.5/
 ├─ src/                    React + TypeScript interface
 ├─ src-tauri/              Rust/Tauri native backend
 ├─ client-mod/             Lightweight Fabric companion source
@@ -125,6 +125,9 @@ The layout is original rather than a clone. It uses an instance-focused library,
 - Managed-Java PATH handling for Forge and NeoForge installers
 - Persisted play time, clean exit-state recovery and minimize-while-playing background support
 - Safe archive extraction, HTTPS-only content downloads and protected launcher metadata
+- Windows release builds use the GUI subsystem, so installed copies open without a companion terminal window
+- Modrinth files retain their exact publisher-provided filenames, including transitive dependencies
+- Streaming checksum verification and throttled progress events reduce memory use and renderer work during downloads
 
 ## Validation included with this package
 
