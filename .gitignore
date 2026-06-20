@@ -1,0 +1,13 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+client-mod/.gradle/
+client-mod/build/
+*.log
+.DS_Store
+.env
+.env.local
+release/
+
+src-tauri/tauri.release.conf.json

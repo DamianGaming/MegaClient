@@ -1,0 +1,93 @@
+name: Publish MegaClient Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: megaclient-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: clippy, rustfmt
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Confirm tag and app versions match
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $expectedTag = "v$version"
+          if ("${{ github.ref_name }}" -ne $expectedTag) {
+            throw "The pushed tag is ${{ github.ref_name }}, but package.json is $version. Expected tag $expectedTag."
+          }
+
+      - name: Validate source
+        run: npm run check && npm run release:verify
+
+      - name: Check Rust backend
+        run: cargo check --manifest-path .\src-tauri\Cargo.toml
+
+      - name: Verify updater keys are configured
+        shell: pwsh
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:TAURI_UPDATER_PUBLIC_KEY) {
+            throw "Missing GitHub secret TAURI_UPDATER_PUBLIC_KEY. Run: npm run release:setup"
+          }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Missing GitHub secret TAURI_SIGNING_PRIVATE_KEY. Run: npm run release:setup"
+          }
+
+      - name: Create updater configuration
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          MEGACLIENT_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+        run: npm run updater:config
+
+      - name: Build, sign and publish
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_UPDATER_ENABLED: 'true'
+          MEGACLIENT_MICROSOFT_CLIENT_ID: ${{ vars.MEGACLIENT_MICROSOFT_CLIENT_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: MegaClient v__VERSION__
+          releaseBody: |
+            Download the Windows setup file below.
+
+            Existing MegaClient installations can install this release through the built-in updater.
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          retryAttempts: 2
+          args: --bundles nsis --features signed-updater --config src-tauri/tauri.release.conf.json

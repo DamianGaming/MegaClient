@@ -1,0 +1,45 @@
+{
+  "name": "megaclient",
+  "private": true,
+  "version": "2.3.3",
+  "type": "module",
+  "description": "A native, performance-first Minecraft launcher powered by Tauri, Rust and React.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "check": "tsc --noEmit",
+    "updater:config": "node ./scripts/create-updater-config.mjs",
+    "tauri:build:release": "node ./scripts/build-signed-release.mjs",
+    "rust:check": "node ./scripts/ensure-rust.mjs",
+    "pretauri:dev": "npm run rust:check",
+    "pretauri:build": "npm run rust:check",
+    "pretauri:build:release": "npm run rust:check",
+    "version:set": "node ./scripts/set-version.mjs",
+    "release:verify": "node ./scripts/verify-release.mjs",
+    "release:setup": "node ./scripts/release-setup.mjs",
+    "release": "node ./scripts/publish-release.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "skinview3d": "^3.4.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0",
+    "@types/react": "^18.3.20",
+    "@types/react-dom": "^18.3.6",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.2.6"
+  }
+}

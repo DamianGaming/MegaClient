@@ -1,0 +1,49 @@
+[package]
+name = "megaclient"
+version = "2.3.3"
+description = "Native MegaClient Minecraft launcher"
+authors = ["MegaStudios"]
+edition = "2021"
+rust-version = "1.95"
+
+[lib]
+name = "megaclient_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.2", features = [] }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "stream", "rustls-tls"] }
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+parking_lot = "0.12"
+keyring = "3"
+sha1 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+zip = "2"
+tar = "0.4"
+flate2 = "1"
+walkdir = "2"
+which = "7"
+mc-launcher-core = "=0.1.1"
+# Pin the transitive sysinfo release so dependency resolution cannot silently raise the MSRV.
+sysinfo = "=0.39.3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+# Register the updater plugin only for signed release builds that provide a real updater config.
+signed-updater = []

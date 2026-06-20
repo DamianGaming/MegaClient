@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "megaclient",
+  "version": "${version}",
+  "name": "MegaClient Companion",
+  "description": "A lightweight in-game companion for the MegaClient launcher.",
+  "authors": ["MegaStudios"],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/megaclient/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["studio.mega.client.MegaClientMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
