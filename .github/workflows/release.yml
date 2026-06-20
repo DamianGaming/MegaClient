@@ -46,6 +46,12 @@ jobs:
       - name: Validate source
         run: npm run check && npm run release:verify
 
+      # `cargo check` expands `tauri::generate_context!()`, which validates
+      # `build.frontendDist`. Build the Vite frontend first so `dist` exists on
+      # a clean GitHub runner (the directory is intentionally gitignored).
+      - name: Build frontend
+        run: npm run build
+
       - name: Check Rust backend
         run: cargo check --manifest-path .\src-tauri\Cargo.toml
 
@@ -69,7 +75,7 @@ jobs:
         run: npm run updater:config
 
       - name: Build, sign and publish
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

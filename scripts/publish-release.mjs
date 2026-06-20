@@ -133,6 +133,9 @@ async function main() {
   runTool(npmTool, ['ci'])
   runTool(npmTool, ['run', 'release:verify'])
   runTool(npmTool, ['run', 'check'])
+  // Tauri's generate_context macro validates frontendDist during cargo check.
+  // Build the Vite frontend first because dist is intentionally not committed.
+  runTool(npmTool, ['run', 'build'])
   runTool(cargoTool, ['check', '--manifest-path', './src-tauri/Cargo.toml'])
 
   runTool(gitTool, ['add', '-A'])
