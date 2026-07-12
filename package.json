@@ -1,7 +1,7 @@
 {
   "name": "megaclient-launcher",
   "productName": "MegaClient",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "A clean, fast Minecraft launcher with isolated instances, unified content management, direct world installs, live partner server status, mandatory protection, MegaClient 26.2 support and a polished startup experience, paginated discovery and a real-time 3D skin and cape preview.",
   "type": "module",
   "main": "./out/main/index.js",
