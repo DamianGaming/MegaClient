@@ -8,11 +8,10 @@ module.exports = {
   directories: { output: 'release' },
   files: [
     'out/**/*',
-    'package.json',
-    { from: 'resources/client/megaclient.bundle', to: 'resources/client/megaclient.bundle' },
-    { from: 'resources/client/launch-verifier.jar', to: 'resources/client/launch-verifier.jar' }
+    'package.json'
   ],
   extraResources: [
+    { from: 'resources/client', to: 'resources/client' },
     { from: 'resources/icons/icon.png', to: 'icon.png' }
   ],
   asar: true,
