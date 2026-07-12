@@ -1,0 +1,52 @@
+{
+  "name": "megaclient-launcher",
+  "productName": "MegaClient",
+  "version": "1.7.1",
+  "description": "A clean, fast Minecraft launcher with isolated instances, unified content management, direct world installs, live partner server status, mandatory protection, MegaClient 26.2 support and a polished startup experience, paginated discovery and a real-time 3D skin and cape preview.",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "author": "MegaStudios",
+  "license": "UNLICENSED",
+  "scripts": {
+    "ensure:electron": "install-electron --no",
+    "postinstall": "npm run ensure:electron",
+    "predev": "npm run ensure:electron && npm run client:verify",
+    "dev": "electron-vite dev",
+    "prebuild": "npm run client:verify",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs",
+    "dist:win": "npm run build && electron-builder --win nsis --config electron-builder.config.cjs",
+    "release": "npm run build && electron-builder --win nsis --publish always --config electron-builder.config.cjs",
+    "client:protect": "node scripts/protect-client.mjs",
+    "client:verify": "node scripts/verify-client-resources.mjs"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "electron-updater": "^6.8.9",
+    "eml-lib": "^2.4.0",
+    "fast-xml-parser": "^5.2.5",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "semver": "^7.7.2"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@types/semver": "^7.7.0",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.2.4",
+    "@vitejs/plugin-react": "^5.0.4"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "electron-winstaller": true
+  }
+}
