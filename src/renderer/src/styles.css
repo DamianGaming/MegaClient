@@ -399,3 +399,15 @@ html[data-reduced-motion="true"] *{scroll-behavior:auto!important}.content{scrol
 @keyframes loading-sheen{to{transform:translateX(110%)}}@keyframes indeterminate-progress{0%{transform:translateX(-120%)}100%{transform:translateX(340%)}}@keyframes status-pulse{50%{opacity:.5;transform:scale(.82)}}
 @media(max-width:900px){.startup-steps{grid-template-columns:1fr 1fr}.activity-transfer{display:none}.activity-banner{grid-template-columns:auto minmax(0,1fr) auto}.version-summary{grid-template-columns:1fr}.startup-foot{align-items:flex-start;flex-direction:column}.startup-foot small{text-align:left}}
 html[data-reduced-motion="true"] .loading-row:after,html[data-reduced-motion="true"] .progress.indeterminate i,html[data-reduced-motion="true"] .status-dot.working:before{animation:none}
+
+/* MegaClient 1.9.0 refinements */
+.skin3d-controls{position:absolute;right:12px;top:12px;z-index:4;display:flex;align-items:center;gap:5px;padding:4px;border:1px solid #303543;border-radius:10px;background:rgba(13,15,21,.9);box-shadow:0 8px 22px rgba(0,0,0,.22)}
+.skin3d-controls button{height:27px;border:0;border-radius:7px;background:transparent;color:#aeb5c2;padding:0 9px;font-size:8px;font-weight:750;cursor:pointer}
+.skin3d-controls button:hover{background:#252936;color:#fff}
+.skin3d-help{max-width:calc(100% - 28px);overflow:hidden;text-overflow:ellipsis}
+.settings-hint.warning{border-color:rgba(235,178,76,.2);background:rgba(235,178,76,.06);color:#c8a45d}
+.update-status-row>span{display:flex;flex-direction:column;gap:4px;min-width:0}
+.update-status-row>span strong{font-size:9px;color:#cfd4dd;font-weight:700}
+.update-status-row>span small{font-size:8px;color:#747c8c}
+.update-status-row button:disabled{opacity:.55;cursor:wait}
+@media (max-width:1050px){.skin3d-controls{right:8px;top:8px}.skin3d-controls button{padding:0 7px}.skin3d-help{font-size:7px}}

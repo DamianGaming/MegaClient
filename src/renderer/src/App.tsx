@@ -104,6 +104,7 @@ interface SettingsData {
   javaMode: 'auto' | 'manual'
   javaPath: string
   checkUpdates: boolean
+  discordActivity: boolean
   reducedMotion: boolean
 }
 
@@ -239,7 +240,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.8.1')
+  const [version, setVersion] = useState('1.9.0')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -256,6 +257,7 @@ function App() {
     speed?: number
   }>({ message: '' })
   const [update, setUpdate] = useState<any>(null)
+  const [discordConfigured, setDiscordConfigured] = useState(false)
   const [authenticating, setAuthenticating] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const toastTimer = useRef<number | null>(null)
@@ -311,6 +313,8 @@ function App() {
       setSettings(data.settings)
       setVersion(data.version)
       setClientVersion(data.clientVersion ?? CLIENT_FALLBACK_VERSION)
+      setUpdate(data.update ?? null)
+      setDiscordConfigured(Boolean(data.discordConfigured))
     } catch (error) {
       const message = errorMessage(error)
       if (initial) setBootError(message)
@@ -431,7 +435,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : 'Ready'} />
+      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
           <img src="./logo.png" alt="MegaClient" />
@@ -467,6 +471,12 @@ function App() {
             <Download size={17} />
             <span>MegaClient {update.version} is ready.</span>
             <button onClick={() => window.mega.app.installUpdate()}>Restart and update</button>
+          </div>
+        )}
+        {update?.state === 'available' && (
+          <div className="update-banner quiet">
+            <Download size={16} />
+            <span>MegaClient {update.version} was found and is starting its automatic download.</span>
           </div>
         )}
         {update?.state === 'downloading' && (
@@ -506,7 +516,7 @@ function App() {
         {tab === 'servers' && <ServersView selected={selected} launching={launching} notify={notify} />}
         {tab === 'cosmetics' && <CosmeticsView account={account} notify={notify} />}
         {tab === 'settings' && settings && (
-          <SettingsView settings={settings} setSettings={setSettings} update={update} version={version} clientVersion={clientVersion} notify={notify} />
+          <SettingsView settings={settings} setSettings={setSettings} update={update} version={version} clientVersion={clientVersion} discordConfigured={discordConfigured} notify={notify} />
         )}
       </main>
       {toast && <Toast toast={toast} />}
@@ -1751,12 +1761,13 @@ function CosmeticsView({ account, notify }: {
   )
 }
 
-function SettingsView({ settings, setSettings, update, version, clientVersion, notify }: {
+function SettingsView({ settings, setSettings, update, version, clientVersion, discordConfigured, notify }: {
   settings: SettingsData
   setSettings: (settings: SettingsData) => void
   update: any
   version: string
   clientVersion: string
+  discordConfigured: boolean
   notify: (message: string, kind?: ToastKind) => void
 }) {
   const [draft, setDraft] = useState(settings)
@@ -1802,15 +1813,25 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, n
           <div className="settings-title"><TerminalSquare /><div><h3>Launch behaviour</h3><p>Console and launcher visibility</p></div></div>
           <SettingToggle title="Open launch console" description="Show a separate live log window while Minecraft starts and runs." checked={draft.showConsole} onChange={(value) => patch({ showConsole: value })} />
           <SettingToggle title="Move launcher to tray while playing" description="Hide MegaClient when Minecraft starts and restore it when the game closes." checked={draft.minimizeToTrayOnLaunch} onChange={(value) => patch({ minimizeToTrayOnLaunch: value })} />
+          <SettingToggle title="Discord activity status" description={discordConfigured ? 'Show whether you are browsing, launching or playing through MegaClient.' : 'Requires a MegaClient Discord application ID in the release configuration.'} checked={draft.discordActivity} onChange={(value) => patch({ discordActivity: value })} />
+          {!discordConfigured && <div className="settings-hint warning"><Info size={14} /><span>Discord activity is ready but not configured in this build. Add the application ID before publishing.</span></div>}
           <SettingToggle title="Reduce interface motion" description="Disable non-essential movement while keeping transitions responsive." checked={draft.reducedMotion} onChange={(value) => patch({ reducedMotion: value })} />
         </section>
 
         <section className="settings-section">
           <div className="settings-title"><RefreshCw /><div><h3>Updates & versions</h3><p>Keep MegaClient current</p></div></div>
           <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2</strong></span></div>
-          <SettingToggle title="Automatic update checks" description="Check for launcher updates quietly when MegaClient starts." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
+          <SettingToggle title="Automatic update checks" description="Scan on startup, every 20 minutes, after sleep and when you return to MegaClient. Updates download automatically." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
           <SettingToggle title="Show snapshots" description="Include Minecraft snapshots in the instance version list." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
-          <div className="update-row"><span>{update?.state === 'checking' ? 'Checking for updates…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%` : update?.state === 'ready' ? `Version ${update.version} ready` : update?.state === 'current' ? 'You are up to date' : update?.state === 'error' ? 'Update check could not finish' : 'MegaClient updates'}</span><button className="secondary" onClick={async () => { await window.mega.app.checkUpdates(); notify('Update check started.', 'success') }}><RefreshCw /> Check now</button></div>
+          <div className="update-row update-status-row">
+            <span>
+              <strong>{update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? 'The last update scan could not finish' : 'Automatic update scanning is ready'}</strong>
+              <small>{update?.checkedAt
+                ? `Last scan ${new Date(update.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${update?.nextCheckAt && draft.checkUpdates ? ` · Next ${new Date(update.nextCheckAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
+                : draft.checkUpdates ? 'The first scan starts shortly after launch.' : 'Automatic scans are currently disabled.'}</small>
+            </span>
+            <button className="secondary" disabled={update?.state === 'checking' || update?.state === 'downloading'} onClick={async () => { await window.mega.app.checkUpdates(); notify('Update scan started.', 'success') }}><RefreshCw className={update?.state === 'checking' ? 'spin' : ''} /> Scan now</button>
+          </div>
         </section>
 
         <section className="settings-section full security-locked compact-security">

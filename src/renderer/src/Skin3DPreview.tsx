@@ -5,6 +5,7 @@ type Point = { x: number; y: number; z: number }
 type UvRect = { x: number; y: number; w: number; h: number }
 type FaceName = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
 type TextureFaces = Partial<Record<FaceName, UvRect>>
+type LocalTransform = (point: Vec3) => Vec3
 
 interface Skin3DPreviewProps {
   skinUrl?: string
@@ -118,7 +119,8 @@ function addCuboid(
   width: number,
   height: number,
   zoom: number,
-  expanded = 0
+  expanded = 0,
+  localTransform?: LocalTransform
 ): void {
   const hx = size[0] / 2 + expanded
   const hy = size[1] / 2 + expanded
@@ -128,7 +130,8 @@ function addCuboid(
     [hx, hy, -hz], [-hx, hy, -hz], [-hx, -hy, -hz], [hx, -hy, -hz]
   ]
   const raw: Vec3[] = base.map(([x, y, z]) => [x + center[0], y + center[1], z + center[2]])
-  const transformed = raw.map((point) => rotatePoint(point, yaw, pitch))
+  const locallyTransformed = localTransform ? raw.map(localTransform) : raw
+  const transformed = locallyTransformed.map((point) => rotatePoint(point, yaw, pitch))
   const points = transformed.map((point) => project(point, width, height, zoom))
   const faces: Array<{ name: FaceName; indices: [number, number, number, number]; shade: number }> = [
     { name: 'front', indices: [0, 1, 2, 3], shade: 0.02 },
@@ -190,10 +193,73 @@ const leftLeg: TextureFaces = {
   left: { x: 16, y: 52, w: 4, h: 12 }, right: { x: 24, y: 52, w: 4, h: 12 },
   top: { x: 20, y: 48, w: 4, h: 4 }, bottom: { x: 24, y: 48, w: 4, h: 4 }
 }
-const capeFaces: TextureFaces = {
-  front: { x: 1, y: 1, w: 10, h: 16 }, back: { x: 12, y: 1, w: 10, h: 16 },
-  left: { x: 0, y: 1, w: 1, h: 16 }, right: { x: 11, y: 1, w: 1, h: 16 },
-  top: { x: 1, y: 0, w: 10, h: 1 }, bottom: { x: 11, y: 0, w: 10, h: 1 }
+const rightArmLayer: TextureFaces = {
+  front: { x: 44, y: 36, w: 4, h: 12 }, back: { x: 52, y: 36, w: 4, h: 12 },
+  left: { x: 40, y: 36, w: 4, h: 12 }, right: { x: 48, y: 36, w: 4, h: 12 },
+  top: { x: 44, y: 32, w: 4, h: 4 }, bottom: { x: 48, y: 32, w: 4, h: 4 }
+}
+const leftArmLayer: TextureFaces = {
+  front: { x: 52, y: 52, w: 4, h: 12 }, back: { x: 60, y: 52, w: 4, h: 12 },
+  left: { x: 48, y: 52, w: 4, h: 12 }, right: { x: 56, y: 52, w: 4, h: 12 },
+  top: { x: 52, y: 48, w: 4, h: 4 }, bottom: { x: 56, y: 48, w: 4, h: 4 }
+}
+const rightLegLayer: TextureFaces = {
+  front: { x: 4, y: 36, w: 4, h: 12 }, back: { x: 12, y: 36, w: 4, h: 12 },
+  left: { x: 0, y: 36, w: 4, h: 12 }, right: { x: 8, y: 36, w: 4, h: 12 },
+  top: { x: 4, y: 32, w: 4, h: 4 }, bottom: { x: 8, y: 32, w: 4, h: 4 }
+}
+const leftLegLayer: TextureFaces = {
+  front: { x: 4, y: 52, w: 4, h: 12 }, back: { x: 12, y: 52, w: 4, h: 12 },
+  left: { x: 0, y: 52, w: 4, h: 12 }, right: { x: 8, y: 52, w: 4, h: 12 },
+  top: { x: 4, y: 48, w: 4, h: 4 }, bottom: { x: 8, y: 48, w: 4, h: 4 }
+}
+function rotateAroundX(point: Vec3, origin: Vec3, angle: number): Vec3 {
+  const dy = point[1] - origin[1]
+  const dz = point[2] - origin[2]
+  const cosine = Math.cos(angle)
+  const sine = Math.sin(angle)
+  return [point[0], origin[1] + dy * cosine - dz * sine, origin[2] + dy * sine + dz * cosine]
+}
+
+function addCape(
+  output: RenderFace[],
+  image: HTMLImageElement,
+  yaw: number,
+  pitch: number,
+  width: number,
+  height: number,
+  zoom: number
+): void {
+  const segments = 4
+  const segmentHeight = 4
+  const hinge: Vec3 = [0, 24.5, -2.2]
+  for (let index = 0; index < segments; index += 1) {
+    const textureY = 1 + index * segmentHeight
+    const faces: TextureFaces = {
+      front: { x: 1, y: textureY, w: 10, h: segmentHeight },
+      back: { x: 12, y: textureY, w: 10, h: segmentHeight },
+      left: { x: 0, y: textureY, w: 1, h: segmentHeight },
+      right: { x: 11, y: textureY, w: 1, h: segmentHeight },
+      ...(index === 0 ? { top: { x: 1, y: 0, w: 10, h: 1 } } : {}),
+      ...(index === segments - 1 ? { bottom: { x: 11, y: 0, w: 10, h: 1 } } : {})
+    }
+    const center: Vec3 = [0, 22.5 - index * segmentHeight, -2.65 - index * 0.16]
+    const bend = (11 + index * 2.2) * DEG
+    addCuboid(
+      output,
+      image,
+      center,
+      [10, segmentHeight + 0.08, 0.72],
+      faces,
+      yaw,
+      pitch,
+      width,
+      height,
+      zoom,
+      0,
+      (point) => rotateAroundX(point, hinge, bend)
+    )
+  }
 }
 
 function loadTexture(url?: string): Promise<HTMLImageElement | null> {
@@ -226,28 +292,40 @@ export default function Skin3DPreview({ skinUrl, capeUrl, slim = false, loading 
       const rect = canvas.getBoundingClientRect()
       const width = Math.max(1, Math.round(rect.width))
       const height = Math.max(1, Math.round(rect.height))
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width
-        canvas.height = height
+      const pixelRatio = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
+      const backingWidth = Math.round(width * pixelRatio)
+      const backingHeight = Math.round(height * pixelRatio)
+      if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+        canvas.width = backingWidth
+        canvas.height = backingHeight
       }
       const context = canvas.getContext('2d', { alpha: true })
       if (!context) return
       context.setTransform(1, 0, 0, 1, 0, 0)
-      context.clearRect(0, 0, rect.width, rect.height)
+      context.clearRect(0, 0, canvas.width, canvas.height)
       context.imageSmoothingEnabled = false
+      const renderWidth = backingWidth
+      const renderHeight = backingHeight
+      const renderZoom = view.zoom * pixelRatio
 
       const faces: RenderFace[] = []
       const cape = capeRef.current
-      if (cape) addCuboid(faces, cape, [0, 17.2, -3.1], [10, 16, 0.8], capeFaces, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      addCuboid(faces, skin, [0, 28, 0], [8, 8, 8], head, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      addCuboid(faces, skin, [0, 28, 0], [8, 8, 8], headLayer, view.yaw, view.pitch, rect.width, rect.height, view.zoom, 0.35)
-      addCuboid(faces, skin, [0, 18, 0], [8, 12, 4], body, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      if (skin.height >= 64) addCuboid(faces, skin, [0, 18, 0], [8, 12, 4], bodyLayer, view.yaw, view.pitch, rect.width, rect.height, view.zoom, 0.23)
+      if (cape) addCape(faces, cape, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      addCuboid(faces, skin, [0, 28, 0], [8, 8, 8], head, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      addCuboid(faces, skin, [0, 28, 0], [8, 8, 8], headLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.35)
+      addCuboid(faces, skin, [0, 18, 0], [8, 12, 4], body, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      if (skin.height >= 64) addCuboid(faces, skin, [0, 18, 0], [8, 12, 4], bodyLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.23)
       const armWidth = slim ? 3 : 4
-      addCuboid(faces, skin, [-(4 + armWidth / 2), 18, 0], [armWidth, 12, 4], rightArm, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      addCuboid(faces, skin, [4 + armWidth / 2, 18, 0], [armWidth, 12, 4], skin.height >= 64 ? leftArm : rightArm, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      addCuboid(faces, skin, [-2, 6, 0], [4, 12, 4], rightLeg, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
-      addCuboid(faces, skin, [2, 6, 0], [4, 12, 4], skin.height >= 64 ? leftLeg : rightLeg, view.yaw, view.pitch, rect.width, rect.height, view.zoom)
+      addCuboid(faces, skin, [-(4 + armWidth / 2), 18, 0], [armWidth, 12, 4], rightArm, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      addCuboid(faces, skin, [4 + armWidth / 2, 18, 0], [armWidth, 12, 4], skin.height >= 64 ? leftArm : rightArm, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      addCuboid(faces, skin, [-2, 6, 0], [4, 12, 4], rightLeg, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      addCuboid(faces, skin, [2, 6, 0], [4, 12, 4], skin.height >= 64 ? leftLeg : rightLeg, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom)
+      if (skin.height >= 64) {
+        addCuboid(faces, skin, [-(4 + armWidth / 2), 18, 0], [armWidth, 12, 4], rightArmLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.18)
+        addCuboid(faces, skin, [4 + armWidth / 2, 18, 0], [armWidth, 12, 4], leftArmLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.18)
+        addCuboid(faces, skin, [-2, 6, 0], [4, 12, 4], rightLegLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.18)
+        addCuboid(faces, skin, [2, 6, 0], [4, 12, 4], leftLegLayer, view.yaw, view.pitch, renderWidth, renderHeight, renderZoom, 0.18)
+      }
 
       faces.sort((a, b) => a.depth - b.depth)
       for (const face of faces) drawFace(context, face)
@@ -300,6 +378,9 @@ export default function Skin3DPreview({ skinUrl, capeUrl, slim = false, loading 
     event.preventDefault()
     setView((current) => ({ ...current, zoom: Math.max(5.8, Math.min(10.7, current.zoom - event.deltaY * 0.007)) }))
   }
+  const showFront = () => setView((current) => ({ ...current, yaw: -18 * DEG, pitch: -5 * DEG }))
+  const showBack = () => setView((current) => ({ ...current, yaw: 162 * DEG, pitch: -4 * DEG }))
+  const reset = () => setView({ yaw: -18 * DEG, pitch: -5 * DEG, zoom: 8.1 })
 
   return (
     <div className="skin3d-root">
@@ -313,8 +394,12 @@ export default function Skin3DPreview({ skinUrl, capeUrl, slim = false, loading 
         aria-label="Interactive 3D Minecraft character preview"
       />
       {(loading || !textureReady) && <div className="skin3d-loading"><span /><small>{loading ? 'Loading profile' : 'Loading preview'}</small></div>}
-      <button className="skin3d-reset" type="button" onClick={() => setView({ yaw: -18 * DEG, pitch: -5 * DEG, zoom: 8.1 })}>Reset view</button>
-      <div className="skin3d-help">Drag to rotate · Scroll to zoom</div>
+      <div className="skin3d-controls">
+        <button type="button" onClick={showFront}>Front</button>
+        {capeUrl && <button type="button" onClick={showBack}>Cape</button>}
+        <button type="button" onClick={reset}>Reset</button>
+      </div>
+      <div className="skin3d-help">Drag to rotate · Scroll to zoom · Cape uses a hinged 3D preview</div>
     </div>
   )
 }

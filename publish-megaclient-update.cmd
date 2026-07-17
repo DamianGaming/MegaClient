@@ -121,6 +121,24 @@ if not errorlevel 1 (
     git tag -d "!TAG!" >nul 2>&1
 )
 
+call npm run discord:verify >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo Discord activity needs your Discord Application ID before this release can be published.
+    echo Create or open the MegaClient application in the Discord Developer Portal,
+    echo copy its Application ID from General Information, and paste it below.
+    echo.
+    set /p "APPID=Discord Application ID: "
+    powershell -NoProfile -Command "if ('!APPID!' -match '^\d{17,20}$') { exit 0 } else { exit 1 }"
+    if errorlevel 1 (
+        echo ERROR: Discord Application IDs contain 17 to 20 numbers.
+        pause
+        exit /b 1
+    )
+    if not exist "resources\discord" mkdir "resources\discord"
+    >"resources\discord\application-id.txt" echo !APPID!
+)
+
 echo.
 echo Installing exact dependencies...
 call npm ci --no-audit --no-fund
@@ -129,6 +147,11 @@ if errorlevel 1 goto :failed
 echo.
 echo Verifying the protected MegaClient client...
 call npm run client:verify
+if errorlevel 1 goto :failed
+
+echo.
+echo Checking Discord activity configuration...
+call npm run discord:verify
 if errorlevel 1 goto :failed
 
 echo.

@@ -29,6 +29,7 @@ export interface LauncherSettings {
   javaMode: 'auto' | 'manual'
   javaPath: string
   checkUpdates: boolean
+  discordActivity: boolean
   reducedMotion: boolean
 }
 

@@ -3,13 +3,25 @@ setlocal
 cd /d "%~dp0"
 
 echo.
-echo MegaClient Update Publisher
-echo ---------------------------
-set /p "VERSION=Enter the new launcher version (example: 1.8.1): "
-if "%VERSION%"=="" (
-  echo No version was entered.
+echo MegaClient Repository Publisher
+echo -------------------------------
+
+git rev-parse --is-inside-work-tree >nul 2>&1
+if errorlevel 1 (
+  echo ERROR: This folder is not a Git repository.
+  echo Use publish-megaclient-update.cmd instead when publishing from an extracted source ZIP.
   pause
   exit /b 1
+)
+
+for /f "usebackq delims=" %%V in (`node -p "require('./package.json').version"`) do set "CURRENT_VERSION=%%V"
+set /p "VERSION=Version to publish [%CURRENT_VERSION%]: "
+if "%VERSION%"=="" set "VERSION=%CURRENT_VERSION%"
+
+call npm run discord:verify >nul 2>&1
+if errorlevel 1 (
+  call configure-discord-activity.cmd
+  if errorlevel 1 exit /b 1
 )
 
 echo.
@@ -23,5 +35,5 @@ if errorlevel 1 (
 
 echo.
 echo MegaClient %VERSION% was pushed successfully.
-echo Open GitHub Actions to watch the installer build.
+start "" "https://github.com/DamianGaming/MegaClient/actions"
 pause

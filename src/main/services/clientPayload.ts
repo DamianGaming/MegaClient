@@ -68,10 +68,10 @@ async function hideAndRestrict(target: string, directory = false): Promise<void>
     }).catch(() => undefined)
   }
   // Fabric may ignore Windows hidden/system JARs during its normal mods scan.
-  // Only private marker directories are hidden; runtime JARs keep restrictive ACLs
+  // Only private marker directories are hidden from ordinary Explorer views; runtime JARs keep restrictive ACLs
   // but remain ordinary readable files for Fabric Loader.
   if (directory) {
-    await execFileAsync('attrib.exe', ['+H', '+S', target], { windowsHide: true }).catch(() => undefined)
+    await execFileAsync('attrib.exe', ['+H', target], { windowsHide: true }).catch(() => undefined)
   }
 }
 

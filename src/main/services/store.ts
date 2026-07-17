@@ -16,6 +16,7 @@ const defaultSettings: LauncherSettings = {
   javaMode: 'auto',
   javaPath: '',
   checkUpdates: true,
+  discordActivity: true,
   reducedMotion: false
 }
 

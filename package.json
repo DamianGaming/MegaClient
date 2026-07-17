@@ -1,8 +1,8 @@
 {
   "name": "megaclient-launcher",
   "productName": "MegaClient",
-  "version": "1.8.1",
-  "description": "A clean, responsive Minecraft launcher with isolated instances, clear startup and launch progress, automatic updates, protected MegaClient 26.2 support and high-confidence launch protection designed to avoid false positives on legitimate mods.",
+  "version": "1.9.0",
+  "description": "A clean, responsive Minecraft launcher with isolated instances, automatic background updates, Discord activity support, improved native-mod compatibility, a polished cape preview and protected MegaClient 26.2 support.",
   "type": "module",
   "main": "./out/main/index.js",
   "author": "MegaStudios",
@@ -20,7 +20,9 @@
     "dist:win": "npm run build && electron-builder --win nsis --config electron-builder.config.cjs",
     "release": "npm run build && electron-builder --win nsis --publish always --config electron-builder.config.cjs",
     "client:protect": "node scripts/protect-client.mjs",
-    "client:verify": "node scripts/verify-client-resources.mjs"
+    "client:verify": "node scripts/verify-client-resources.mjs",
+    "configure:discord": "configure-discord-activity.cmd",
+    "discord:verify": "node scripts/verify-discord-activity.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

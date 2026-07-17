@@ -20,6 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run discord:verify
       - name: Build and publish installer
         run: npm run release
         env:

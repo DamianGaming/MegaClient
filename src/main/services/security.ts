@@ -1,8 +1,6 @@
-import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import os from 'node:os'
 import { promisify } from 'node:util'
 import type { LauncherInstance } from '../types'
 import { emlRootDirectory, modsDirectory } from './paths'
@@ -16,9 +14,25 @@ const BLOCKED_PROCESS_MARKERS = [
   'doomsday client', 'horion injector', 'java injector', 'ghost client injector'
 ]
 
-const BLOCKED_MODULE_MARKERS = [
-  'vape', 'entropy', 'xenos', 'cheatengine', 'injector', 'horion', 'doomsday', 'ghostclient'
-]
+// Loaded native modules are blocked only when their own filename is a clear,
+// explicit injector/client identity. Legitimate mods such as Simple Voice Chat
+// and C2ME may load OpenAL, Opus, RNNoise or other native libraries from
+// user-writable cache/temp folders, so location and Windows signing alone are
+// never treated as proof of cheating.
+const BLOCKED_NATIVE_MODULES = new Map<string, string>([
+  ['vape', 'Vape'],
+  ['vapeclient', 'Vape Client'],
+  ['entropy', 'Entropy'],
+  ['xenos', 'Xenos Injector'],
+  ['xenos64', 'Xenos Injector'],
+  ['xenos32', 'Xenos Injector'],
+  ['cheatengine', 'Cheat Engine'],
+  ['cheatenginei386', 'Cheat Engine'],
+  ['cheatenginex8664', 'Cheat Engine'],
+  ['horion', 'Horion'],
+  ['doomsday', 'Doomsday Client'],
+  ['ghostclient', 'Ghost Client']
+])
 
 const FORBIDDEN_JVM_ARGUMENTS = [
   '-javaagent:', '-agentpath:', '-agentlib:jdwp', '-xrunjdwp:', '-xbootclasspath/a:', '-xbootclasspath/p:'
@@ -44,7 +58,6 @@ export interface SecurityFinding {
   processId?: number
 }
 
-const signatureCache = new Map<string, { status: string; expiresAt: number }>()
 let processCache: { expiresAt: number; values: ProcessInfo[] } | null = null
 
 function normalise(value: unknown): string {
@@ -53,6 +66,24 @@ function normalise(value: unknown): string {
 
 function firstMarker(value: string, markers: string[]): string | undefined {
   return markers.find((marker) => value.includes(marker))
+}
+
+function nativeModuleIdentity(module: ModuleInfo): { label: string; name: string } | null {
+  const rawName = module.ModuleName || path.basename(module.FileName || '')
+  if (!rawName) return null
+  const withoutExtension = rawName.toLowerCase().replace(/\.(?:dll|exe)$/i, '')
+  const identity = withoutExtension.replace(/[^a-z0-9]+/g, '')
+  const direct = BLOCKED_NATIVE_MODULES.get(identity)
+  if (direct) return { label: direct, name: rawName }
+
+  // Versioned injector DLL names are common; ordinary names merely containing a
+  // word such as "voice", "openal" or "client" are deliberately ignored.
+  for (const [blocked, label] of BLOCKED_NATIVE_MODULES) {
+    if (!identity.startsWith(blocked)) continue
+    const suffix = identity.slice(blocked.length)
+    if (/^(?:v?\d|build\d|release\d)$/.test(suffix)) return { label, name: rawName }
+  }
+  return null
 }
 
 async function listProcesses(force = false): Promise<ProcessInfo[]> {
@@ -71,7 +102,7 @@ async function listProcesses(force = false): Promise<ProcessInfo[]> {
   if (!stdout.trim()) return []
   const parsed = JSON.parse(stdout) as ProcessInfo | ProcessInfo[]
   const values = Array.isArray(parsed) ? parsed : [parsed]
-  processCache = { values, expiresAt: Date.now() + 2_500 }
+  processCache = { values, expiresAt: Date.now() + 5_000 }
   return values
 }
 
@@ -81,13 +112,11 @@ export async function scanInstanceMods(instance: LauncherInstance): Promise<Secu
   const candidates = names.filter((name) => name.toLowerCase().endsWith('.jar'))
   const findings: SecurityFinding[] = []
 
-  // Keep archive inspection bounded so large mod folders do not create a memory spike
-  // or monopolise the Electron main process for a long uninterrupted burst.
-  for (let index = 0; index < candidates.length; index += 3) {
-    const batch = await Promise.all(candidates.slice(index, index + 3).map((name) => inspectModJar(path.join(directory, name))))
-    for (const finding of batch) {
-      if (finding) findings.push(finding)
-    }
+  // inspectModJar uses a small worker pool, keeping ZIP decompression away from
+  // Electron's main thread while bounding CPU and memory use.
+  for (let index = 0; index < candidates.length; index += 8) {
+    const batch = await Promise.all(candidates.slice(index, index + 8).map((name) => inspectModJar(path.join(directory, name))))
+    for (const finding of batch) if (finding) findings.push(finding)
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
   return findings
@@ -157,56 +186,18 @@ async function listModules(processIds: number[]): Promise<ModuleInfo[]> {
   return Array.isArray(parsed) ? parsed : [parsed]
 }
 
-async function signatureStatus(file: string): Promise<string> {
-  const key = normalise(file)
-  const cached = signatureCache.get(key)
-  if (cached && cached.expiresAt > Date.now()) return cached.status
-  const escaped = file.replaceAll("'", "''")
-  const command = `(Get-AuthenticodeSignature -LiteralPath '${escaped}' -ErrorAction SilentlyContinue).Status`
-  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-    windowsHide: true,
-    timeout: 7_000
-  }).catch(() => ({ stdout: '' }))
-  const status = stdout.trim().toLowerCase()
-  signatureCache.set(key, { status, expiresAt: Date.now() + 10 * 60_000 })
-  return status
-}
-
-export async function scanLoadedModules(processIds: number[], instance: LauncherInstance): Promise<SecurityFinding[]> {
+export async function scanLoadedModules(processIds: number[]): Promise<SecurityFinding[]> {
   const modules = await listModules(processIds)
   const findings: SecurityFinding[] = []
-  const allowedRoot = normalise(emlRootDirectory())
-  const home = normalise(os.homedir())
-  const riskyRoots = [normalise(os.tmpdir()), `${home}/downloads`, `${home}/desktop`]
-
   for (const module of modules) {
-    const searchable = normalise(`${module.ModuleName ?? ''}\n${module.FileName ?? ''}`)
-    const marker = firstMarker(searchable, BLOCKED_MODULE_MARKERS)
-    if (marker && !(searchable.includes(allowedRoot) && marker === 'injector')) {
-      findings.push({
-        category: 'module',
-        title: 'Injected module detected',
-        detail: `${module.ModuleName ?? path.basename(module.FileName ?? 'Unknown module')} matched ${marker}.`,
-        processId: module.ProcessId
-      })
-      continue
-    }
-
-    const modulePath = normalise(module.FileName)
-    const risky = Boolean(modulePath)
-      && !modulePath.startsWith(allowedRoot)
-      && riskyRoots.some((root) => Boolean(root) && modulePath.startsWith(root))
-    if (!risky || !module.FileName) continue
-
-    const status = await signatureStatus(module.FileName)
-    if (status !== 'valid') {
-      findings.push({
-        category: 'module',
-        title: 'Untrusted injected module detected',
-        detail: `${module.ModuleName ?? path.basename(module.FileName)} was loaded from a user-writable location without a valid Windows signature.`,
-        processId: module.ProcessId
-      })
-    }
+    const blocked = nativeModuleIdentity(module)
+    if (!blocked) continue
+    findings.push({
+      category: 'module',
+      title: 'Injected module detected',
+      detail: `${blocked.name} matches the explicit ${blocked.label} native-module identity.`,
+      processId: module.ProcessId
+    })
   }
   return findings
 }
@@ -238,9 +229,4 @@ export function secureChildEnvironment(): () => void {
       else process.env[name] = value
     }
   }
-}
-
-export async function fingerprintFile(file: string): Promise<string> {
-  const data = await fs.readFile(file)
-  return createHash('sha256').update(data).digest('hex')
 }

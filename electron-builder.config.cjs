@@ -12,6 +12,7 @@ module.exports = {
   ],
   extraResources: [
     { from: 'resources/client', to: 'resources/client' },
+    { from: 'resources/discord', to: 'discord' },
     { from: 'resources/icons/icon.png', to: 'icon.png' }
   ],
   asar: true,
@@ -29,7 +30,8 @@ module.exports = {
     shortcutName: 'MegaClient',
     deleteAppDataOnUninstall: false,
     installerIcon: 'resources/icons/icon.ico',
-    uninstallerIcon: 'resources/icons/icon.ico'
+    uninstallerIcon: 'resources/icons/icon.ico',
+    include: 'build/installer.nsh'
   },
   publish: owner && repo ? [{ provider: 'github', owner, repo, releaseType: 'release' }] : null
 }

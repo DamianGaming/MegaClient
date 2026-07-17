@@ -18,6 +18,7 @@ import { instanceDirectory, modsDirectory } from './paths'
 import { store } from './store'
 import { getLoaderVersions } from './versions'
 import { installMod, setModEnabled } from './modrinth'
+import { showLauncherActivity, showLaunchingActivity, showPlayingActivity } from './discordActivity'
 import {
   findGameJavaProcesses,
   runPreflightSecurity,
@@ -89,15 +90,23 @@ function consoleHtml(iconDataUrl: string): string {
 
 function flushConsole(): void {
   consoleFlushTimer = null
-  if (!consolePending.length || !consoleWindow || consoleWindow.isDestroyed()) return
+  if (!consoleWindow || consoleWindow.isDestroyed()) {
+    consolePending = []
+    return
+  }
+  if (!consolePending.length) return
   const batch = consolePending.splice(0, consolePending.length)
   const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); log.scrollTop=log.scrollHeight; })()`
   void consoleWindow.webContents.executeJavaScript(script).catch(() => undefined)
 }
 
 function queueConsole(entries: typeof consolePending): void {
+  // Keep the bounded history, but do not build a second unbounded live queue
+  // while the optional console window is closed. Reopening replays consoleLines.
+  if (!consoleWindow || consoleWindow.isDestroyed()) return
   consolePending.push(...entries)
-  if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, 45)
+  if (consolePending.length > 900) consolePending = consolePending.slice(-700)
+  if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, 80)
 }
 
 function replayConsole(): void {
@@ -164,17 +173,22 @@ async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstan
   if (!versions.length) throw new Error(`${instance.loader} does not support Minecraft ${instance.minecraftVersion}.`)
 
   if (instance.customClient) {
-    const compatible = versions.find((version) => {
+    const isSupported = (version?: string): boolean => {
+      if (!version || !versions.includes(version)) return false
       const parsed = semver.valid(version) ?? semver.coerce(version)?.version
       return parsed ? semver.gte(parsed, MINIMUM_CLIENT_LOADER) : false
-    })
+    }
+
+    // Keep an already compatible loader instead of silently moving every
+    // launch to the newest build. This avoids needless loader churn for large
+    // native/performance mods while still repairing missing or obsolete setups.
+    if (instance.loader === 'fabric' && isSupported(instance.loaderVersion)) return instance
+
+    const compatible = versions.find((version) => isSupported(version))
     if (!compatible) {
       throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
     }
-    if (instance.loaderVersion !== compatible || instance.loader !== 'fabric') {
-      return updateInstance(instance.id, { loader: 'fabric', loaderVersion: compatible, minecraftVersion: CLIENT_MINECRAFT_VERSION })
-    }
-    return instance
+    return updateInstance(instance.id, { loader: 'fabric', loaderVersion: compatible, minecraftVersion: CLIENT_MINECRAFT_VERSION })
   }
 
   if (instance.loaderVersion && versions.includes(instance.loaderVersion)) return instance
@@ -235,6 +249,7 @@ function stopClientVerification(): void {
 
 function startSecurityMonitor(mainWindow: BrowserWindow, instance: LauncherInstance): void {
   stopSecurityMonitor()
+  let nextModuleScanAt = 0
   securityTimer = setInterval(() => {
     if (securityCheckRunning) return
     securityCheckRunning = true
@@ -242,9 +257,11 @@ function startSecurityMonitor(mainWindow: BrowserWindow, instance: LauncherInsta
       const gameProcesses = await findGameJavaProcesses(instance)
       if (!gameProcesses.length) return
       const processIds = gameProcesses.map((item) => item.ProcessId ?? 0)
+      const scanModulesNow = Date.now() >= nextModuleScanAt
+      if (scanModulesNow) nextModuleScanAt = Date.now() + 90_000
       const [toolFindings, moduleFindings] = await Promise.all([
         scanRunningTools(),
-        scanLoadedModules(processIds, instance)
+        scanModulesNow ? scanLoadedModules(processIds) : Promise.resolve([])
       ])
       const finding = [
         ...scanGameJvmArguments(gameProcesses),
@@ -262,7 +279,7 @@ function startSecurityMonitor(mainWindow: BrowserWindow, instance: LauncherInsta
     })().catch((error) => appendConsole(`[Security] Monitor warning: ${error instanceof Error ? error.message : String(error)}`, 'muted')).finally(() => {
       securityCheckRunning = false
     })
-  }, 8_000)
+  }, 30_000)
 }
 
 function clientLoadedInText(text: string): boolean {
@@ -273,7 +290,10 @@ function clientLoadedInText(text: string): boolean {
 }
 
 function clientFailureFromLog(text: string): string | null {
-  const lines = text.split(/\r?\n/).filter((line) => /megaclient|fabric-api|incompatible mods|mod resolution|dependency/i.test(line))
+  // Do not reinterpret another legitimate mod's own compatibility error as a
+  // protected-client failure. Only lines that explicitly identify MegaClient or
+  // its verifier can fail the protected-client check.
+  const lines = text.split(/\r?\n/).filter((line) => /megaclient(?:-launch-verifier)?/i.test(line))
   const failure = lines.find((line) => /error|failed|incompatible|requires|could not find|required mod|resolution failed/i.test(line))
   return failure?.trim().slice(0, 600) ?? null
 }
@@ -285,6 +305,20 @@ interface ClientVerificationMarker {
   sha256?: string
   originVerified?: boolean
   verified?: boolean
+}
+
+async function readTextTail(file: string, maximumBytes = 256 * 1024): Promise<string> {
+  const stat = await fs.stat(file)
+  const length = Math.min(stat.size, maximumBytes)
+  if (length <= 0) return ''
+  const handle = await fs.open(file, 'r')
+  try {
+    const buffer = Buffer.allocUnsafe(length)
+    const { bytesRead } = await handle.read(buffer, 0, length, Math.max(0, stat.size - length))
+    return buffer.subarray(0, bytesRead).toString('utf8')
+  } finally {
+    await handle.close()
+  }
 }
 
 async function readClientMarker(payload: PreparedClientPayload): Promise<boolean> {
@@ -310,8 +344,8 @@ function startClientVerification(
   markClientSeen: () => void
 ): void {
   stopClientVerification()
-  const deadline = verificationStartedAt + 120_000
-  const logFallbackAt = verificationStartedAt + 12_000
+  const deadline = verificationStartedAt + 240_000
+  const logFallbackAt = verificationStartedAt + 15_000
   const latestLog = path.join(instanceDirectory(instance.slug), 'logs', 'latest.log')
 
   const finishSuccess = (source: 'marker' | 'log'): void => {
@@ -344,7 +378,7 @@ function startClientVerification(
 
     const stat = await fs.stat(latestLog).catch(() => null)
     if (stat && stat.mtimeMs >= verificationStartedAt - 2_000) {
-      const log = await fs.readFile(latestLog, 'utf8').catch(() => '')
+      const log = await readTextTail(latestLog).catch(() => '')
       if (clientLoadedInText(log)) markClientSeen()
       const failure = clientFailureFromLog(log)
       if (failure) {
@@ -400,17 +434,17 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     instance = await updateInstance(instance.id, { minecraftVersion: CLIENT_MINECRAFT_VERSION, loader: 'fabric' })
   }
   instance = await resolveLoader(instance)
+  showLaunchingActivity(instance, serverAddress)
 
   emit(mainWindow, 'launch:progress', { phase: 'security', message: 'Running enforced launch protection' } satisfies LaunchProgress)
-  appendConsole('[Security] Checking explicit blocked-client identities and active injection tools', 'muted')
+  appendConsole('[Security] Checking high-confidence blocked identities without restricting legitimate native mods', 'muted')
   await runPreflightSecurity(instance)
 
   const account: Account = await getValidAccount(mainWindow)
   const clientPayload = await prepareCustomClient(instance, mainWindow)
   const javaArgs = [
     '-Dmegaclient.launcher=true',
-    '-Dfabric.debug.disableModShuffle=true',
-    '-Dfabric.debug.throwDirectly=true'
+    '-Dfabric.debug.disableModShuffle=true'
   ]
   if (clientPayload) {
     javaArgs.push(`-Dmegaclient.payload.sha256=${clientPayload.sha256}`)
@@ -449,6 +483,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
 
   let payloadCleaned = false
   let clientObserved = false
+  let gameStartedAt = Date.now()
   const cleanupPayload = async (): Promise<void> => {
     if (payloadCleaned) return
     payloadCleaned = true
@@ -488,8 +523,10 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
       validatePreparedClientPayloadSync(clientPayload)
       appendConsole('[MegaClient] Fabric can read the verified runtime JARs', 'success')
     }
+    gameStartedAt = Date.now()
     progress('launch', serverAddress ? 'Joining partner server' : 'Minecraft is running', 1)
     setConsoleState('Minecraft running')
+    showPlayingActivity(instance, serverAddress, gameStartedAt)
     startSecurityMonitor(mainWindow, instance)
     if (instance.customClient && clientPayload) {
       startClientVerification(mainWindow, instance, clientPayload, Date.now(), () => clientObserved, () => { clientObserved = true })
@@ -533,6 +570,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     emit(mainWindow, 'launch:closed', { code })
     destroyGameTray()
     showMainWindow(mainWindow)
+    showLauncherActivity(instance)
     void cleanupPayload()
   })
 
@@ -545,6 +583,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     stopClientVerification()
     destroyGameTray()
     showMainWindow(mainWindow)
+    showLauncherActivity(instance)
     const message = error instanceof Error ? error.message : String(error)
     appendConsole(`[Error] ${message}`, 'error')
     setConsoleState('Launch failed')

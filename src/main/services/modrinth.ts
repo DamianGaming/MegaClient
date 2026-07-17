@@ -198,6 +198,13 @@ async function getVersion(versionId: string): Promise<ModrinthVersion> {
   return fetchJson<ModrinthVersion>(`https://api.modrinth.com/v2/version/${encodeURIComponent(versionId)}`)
 }
 
+function versionSupportsInstance(version: ModrinthVersion, instance: LauncherInstance, type: DiscoverContentType): boolean {
+  if (!version.game_versions.includes(instance.minecraftVersion)) return false
+  if (type !== 'mod') return true
+  const loaders = compatibleLoaders(instance)
+  return !loaders.length || loaders.some((loader) => version.loaders.includes(loader))
+}
+
 function bestFile(version: ModrinthVersion, extension?: string): ModrinthFile {
   const candidates = extension ? version.files.filter((file) => file.filename.toLowerCase().endsWith(extension)) : version.files
   const file = candidates.find((item) => item.primary) ?? candidates[0]
@@ -206,15 +213,26 @@ function bestFile(version: ModrinthVersion, extension?: string): ModrinthFile {
 }
 
 async function resolveDependencyVersion(dependency: ModrinthDependency, instance: LauncherInstance): Promise<{ version: ModrinthVersion; project: ModrinthProject } | null> {
+  let dependencyProject: ModrinthProject | undefined
   let dependencyVersion: ModrinthVersion | undefined
-  if (dependency.version_id) dependencyVersion = await getVersion(dependency.version_id)
-  else if (dependency.project_id) {
-    const dependencyProject = await project(dependency.project_id)
-    dependencyVersion = (await versionsFor(dependency.project_id, instance, dependencyProject.project_type))[0]
-    if (dependencyVersion) return { version: dependencyVersion, project: dependencyProject }
+
+  if (dependency.version_id) {
+    const exact = await getVersion(dependency.version_id)
+    dependencyProject = await project(exact.project_id)
+    // Some publishers leave an older exact dependency version attached while a
+    // newer compatible build exists. Prefer the exact version when it really
+    // supports this instance, otherwise resolve a compatible project version.
+    if (versionSupportsInstance(exact, instance, dependencyProject.project_type)) dependencyVersion = exact
   }
-  if (!dependencyVersion) return null
-  return { version: dependencyVersion, project: await project(dependencyVersion.project_id) }
+
+  const projectId = dependency.project_id ?? dependencyProject?.id
+  if (!dependencyVersion && projectId) {
+    dependencyProject ??= await project(projectId)
+    dependencyVersion = (await versionsFor(projectId, instance, dependencyProject.project_type))[0]
+  }
+
+  if (!dependencyVersion || !dependencyProject) return null
+  return { version: dependencyVersion, project: dependencyProject }
 }
 
 async function installDependencies(

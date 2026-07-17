@@ -1,8 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from 'electron'
+import { execFile } from 'node:child_process'
 import path from 'node:path'
-import electronUpdater, { type AppUpdater } from 'electron-updater'
-
-const { autoUpdater } = electronUpdater as { autoUpdater: AppUpdater }
+import { promisify } from 'node:util'
 import type { LoaderType } from './types'
 import { store } from './services/store'
 import { login, logout, restore } from './services/account'
@@ -14,15 +13,31 @@ import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
 import { getPartnerServerStatus } from './services/servers'
+import { checkForUpdates, configureAutomaticUpdates, installReadyUpdate, notifyWindowFocused, setupUpdater, updaterState } from './services/updater'
+import { configureDiscordActivity, isDiscordActivityConfigured, showLauncherActivity, shutdownDiscordActivity } from './services/discordActivity'
+
+const execFileAsync = promisify(execFile)
 
 let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
-let updateReady = false
 let splashProgress = { value: 6, message: 'Starting MegaClient' }
 let mainWindowRevealed = false
 let unresponsiveTimer: NodeJS.Timeout | null = null
 let rendererRecoveryAttempts = 0
-let lastUpdateProgressSentAt = 0
+
+
+async function hideProtectedInstallationResources(): Promise<void> {
+  if (!app.isPackaged || process.platform !== 'win32') return
+  const directory = path.join(process.resourcesPath, 'resources', 'client')
+  const targets = [
+    directory,
+    path.join(directory, 'megaclient.bundle'),
+    path.join(directory, 'launch-verifier.jar')
+  ]
+  for (const target of targets) {
+    await execFileAsync('attrib.exe', ['+H', target], { windowsHide: true, timeout: 5_000 }).catch(() => undefined)
+  }
+}
 
 function iconPath(): string {
   return app.isPackaged
@@ -198,6 +213,7 @@ function createMainWindow(): void {
   })
   configureRendererWindow(mainWindow)
   mainWindow.webContents.once('did-finish-load', () => setSplashProgress(58, 'Loading your launcher'))
+  mainWindow.on('focus', () => notifyWindowFocused())
   loadRenderer(mainWindow, 'main')
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -239,23 +255,7 @@ function requireWindow(): BrowserWindow {
 }
 
 function sendUpdate(payload: unknown): void {
-  mainWindow?.webContents.send('updates:event', payload)
-}
-
-function setupUpdater(): void {
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }))
-  autoUpdater.on('update-available', (info) => sendUpdate({ state: 'available', version: info.version }))
-  autoUpdater.on('update-not-available', () => sendUpdate({ state: 'current' }))
-  autoUpdater.on('download-progress', (progress) => {
-    const now = Date.now()
-    if (now - lastUpdateProgressSentAt < 250 && progress.percent < 100) return
-    lastUpdateProgressSentAt = now
-    sendUpdate({ state: 'downloading', percent: progress.percent })
-  })
-  autoUpdater.on('update-downloaded', (info) => { updateReady = true; sendUpdate({ state: 'ready', version: info.version }) })
-  autoUpdater.on('error', (error) => sendUpdate({ state: 'error', message: error.message }))
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('updates:event', payload)
 }
 
 function registerIpc(): void {
@@ -270,7 +270,10 @@ function registerIpc(): void {
   })
   ipcMain.handle('console-window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
 
-  ipcMain.handle('app:renderer-ready', () => revealMainWindow())
+  ipcMain.handle('app:renderer-ready', async () => {
+    sendUpdate(updaterState())
+    await revealMainWindow()
+  })
   ipcMain.handle('app:reload', () => requireWindow().webContents.reload())
   ipcMain.handle('app:quit', () => app.quit())
   ipcMain.handle('app:bootstrap', async () => {
@@ -288,12 +291,26 @@ function registerIpc(): void {
       account,
       version: app.getVersion(),
       clientVersion: CLIENT_VERSION,
+      update: updaterState(),
+      discordConfigured: isDiscordActivityConfigured(),
       packaged: app.isPackaged
     }
   })
   ipcMain.handle('versions:minecraft', (_event, snapshots: boolean) => getMinecraftVersions(Boolean(snapshots)))
   ipcMain.handle('versions:loader', (_event, loader: LoaderType, version: string) => getLoaderVersions(loader, version))
-  ipcMain.handle('settings:update', (_event, patch) => store.updateSettings(patch))
+  ipcMain.handle('settings:update', async (_event, patch) => {
+    const before = store.getData().settings
+    const next = await store.updateSettings(patch)
+    if (next.checkUpdates !== before.checkUpdates) configureAutomaticUpdates(next.checkUpdates)
+    if (next.discordActivity !== before.discordActivity) {
+      await configureDiscordActivity(next.discordActivity)
+      if (next.discordActivity) {
+        const data = store.getData()
+        showLauncherActivity(data.instances.find((instance) => instance.id === data.selectedInstanceId) ?? data.instances[0])
+      }
+    }
+    return next
+  })
 
   ipcMain.handle('account:login', () => login(requireWindow()))
   ipcMain.handle('account:logout', () => logout())
@@ -308,7 +325,10 @@ function registerIpc(): void {
   ipcMain.handle('instances:create', (_event, input) => createInstance(input))
   ipcMain.handle('instances:update', (_event, id: string, patch) => updateInstance(id, patch))
   ipcMain.handle('instances:delete', (_event, id: string) => deleteInstance(id))
-  ipcMain.handle('instances:select', (_event, id: string) => store.selectInstance(id))
+  ipcMain.handle('instances:select', async (_event, id: string) => {
+    await store.selectInstance(id)
+    showLauncherActivity(getInstance(id))
+  })
   ipcMain.handle('instances:open-folder', async (_event, id: string) => shell.openPath(await openInstanceFolder(id)))
   ipcMain.handle('instances:add-local-mod', async (_event, id: string) => {
     const result = await dialog.showOpenDialog(requireWindow(), { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Minecraft mods', extensions: ['jar'] }] })
@@ -370,13 +390,8 @@ function registerIpc(): void {
   ipcMain.handle('servers:copy-address', (_event, address: string) => clipboard.writeText(address))
   ipcMain.handle('servers:status', (_event, address: string, force = false) => getPartnerServerStatus(address, Boolean(force)))
 
-  ipcMain.handle('updates:check', async () => {
-    if (!app.isPackaged) return { state: 'development' }
-    return autoUpdater.checkForUpdates()
-  })
-  ipcMain.handle('updates:install', () => {
-    if (updateReady) autoUpdater.quitAndInstall(false, true)
-  })
+  ipcMain.handle('updates:check', () => checkForUpdates('manual'))
+  ipcMain.handle('updates:install', () => installReadyUpdate())
 }
 
 const singleInstanceLock = app.requestSingleInstanceLock()
@@ -395,16 +410,18 @@ app.whenReady().then(async () => {
   app.setAppUserModelId('studio.megastudios.megaclient')
   splashProgress = { value: 12, message: 'Opening MegaClient' }
   await store.initialize()
+  await hideProtectedInstallationResources()
+  const data = store.getData()
   registerIpc()
-  setupUpdater()
+  setupUpdater(sendUpdate, data.settings.checkUpdates)
+  await configureDiscordActivity(data.settings.discordActivity)
+  showLauncherActivity(data.instances.find((instance) => instance.id === data.selectedInstanceId) ?? data.instances[0])
   createWindows()
-  if (app.isPackaged && store.getData().settings.checkUpdates) {
-    setTimeout(() => void autoUpdater.checkForUpdates().catch(() => undefined), 3000)
-  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindows() })
 })
 
 process.on('unhandledRejection', (reason) => console.error('[MegaClient] Unhandled promise rejection:', reason))
 process.on('uncaughtException', (error) => console.error('[MegaClient] Uncaught main-process error:', error))
 
+app.on('before-quit', () => shutdownDiscordActivity())
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
