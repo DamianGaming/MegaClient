@@ -28,11 +28,12 @@ function StartupFailure({ title, detail }: { title: string; detail: string }) {
   return (
     <main className="startup-failure">
       <section>
-        <img src="/logo.png" alt="MegaClient" />
+        <img src="./logo.png" alt="MegaClient" />
         <span>STARTUP ISSUE</span>
         <h1>{title}</h1>
         <p>{detail}</p>
-        <small>Close MegaClient, run <strong>npm run dev</strong> again, and check the terminal for a line beginning with “MegaClient”.</small>
+        <small>Your instances and Minecraft files are safe. Reloading only restarts the launcher interface.</small>
+        <div className="startup-failure-actions"><button onClick={() => typeof window.mega === 'undefined' ? window.close() : void window.mega.app.quit()}>Close</button><button onClick={() => typeof window.mega === 'undefined' ? window.location.reload() : void window.mega.app.reload()}>Reload interface</button></div>
       </section>
     </main>
   )

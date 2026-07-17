@@ -49,6 +49,35 @@ type Tab = 'home' | 'instances' | 'browse' | 'manage' | 'servers' | 'cosmetics' 
 type Loader = 'vanilla' | 'forge' | 'neoforge' | 'fabric'
 type ToastKind = 'error' | 'success' | 'warning'
 
+interface BootStatus {
+  value: number
+  message: string
+  detail?: string
+}
+
+const CLIENT_FALLBACK_VERSION = '0.11.11'
+const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
+
+function launchPhaseLabel(phase?: string): string {
+  return ({
+    security: 'Safety checks',
+    client: 'MegaClient files',
+    prepare: 'Game files',
+    download: 'Downloading',
+    loader: 'Mod loader',
+    java: 'Java runtime',
+    assets: 'Minecraft assets',
+    natives: 'Native libraries',
+    launch: 'Starting Minecraft'
+  } as Record<string, string>)[phase ?? ''] ?? 'Preparing'
+}
+
+function launchPhaseProgress(phase?: string, value?: number): number {
+  const index = Math.max(0, LAUNCH_PHASES.indexOf((phase ?? '') as typeof LAUNCH_PHASES[number]))
+  const within = Math.max(0, Math.min(1, value ?? 0.18))
+  return Math.min(1, (index + within) / LAUNCH_PHASES.length)
+}
+
 interface Instance {
   id: string
   name: string
@@ -210,10 +239,16 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.7.1')
+  const [version, setVersion] = useState('1.8.1')
+  const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
+  const [booting, setBooting] = useState(true)
+  const [bootError, setBootError] = useState<string>()
+  const [bootStatus, setBootStatus] = useState<BootStatus>({ value: 12, message: 'Opening MegaClient', detail: 'Starting the secure launcher interface' })
+  const [bootElapsed, setBootElapsed] = useState(0)
   const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null)
   const [launching, setLaunching] = useState(false)
   const [launchProgress, setLaunchProgress] = useState<{
+    phase?: string
     message: string
     progress?: number
     downloaded?: number
@@ -226,6 +261,7 @@ function App() {
   const toastTimer = useRef<number | null>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const rendererReadySent = useRef(false)
+  const bootStartedAt = useRef(Date.now())
 
   const selected = useMemo(
     () => instances.find((item) => item.id === selectedId) ?? instances[0],
@@ -259,7 +295,14 @@ function App() {
     }
   }, [accountMenuOpen])
 
-  const bootstrap = useCallback(async () => {
+  const bootstrap = useCallback(async (initial = false) => {
+    if (initial) {
+      bootStartedAt.current = Date.now()
+      setBootElapsed(0)
+      setBootError(undefined)
+      setBooting(true)
+      setBootStatus({ value: 30, message: 'Connecting launcher services', detail: 'Loading your settings and saved account' })
+    }
     try {
       const data = await window.mega.app.bootstrap()
       setAccount(data.account)
@@ -267,17 +310,28 @@ function App() {
       setSelectedId(data.selectedInstanceId ?? data.instances[0]?.id)
       setSettings(data.settings)
       setVersion(data.version)
+      setClientVersion(data.clientVersion ?? CLIENT_FALLBACK_VERSION)
     } catch (error) {
-      notify(errorMessage(error), 'error')
+      const message = errorMessage(error)
+      if (initial) setBootError(message)
+      else notify(message, 'error')
     } finally {
-      if (!rendererReadySent.current) {
-        rendererReadySent.current = true
-        await window.mega.app.rendererReady()
-      }
+      if (initial) setBooting(false)
     }
   }, [notify])
 
-  useEffect(() => { void bootstrap() }, [bootstrap])
+  useEffect(() => {
+    if (rendererReadySent.current) return
+    rendererReadySent.current = true
+    void window.mega.app.rendererReady()
+  }, [])
+  useEffect(() => window.mega.app.onBootStatus(setBootStatus), [])
+  useEffect(() => { void bootstrap(true) }, [bootstrap])
+  useEffect(() => {
+    if (!booting) return
+    const timer = window.setInterval(() => setBootElapsed(Math.floor((Date.now() - bootStartedAt.current) / 1000)), 1000)
+    return () => window.clearInterval(timer)
+  }, [booting])
   useEffect(() => window.mega.launchEvents.onProgress((event) => {
     setLaunching(true)
     setLaunchProgress(event)
@@ -354,6 +408,18 @@ function App() {
     }
   }
 
+  if (booting || bootError) {
+    return (
+      <StartupView
+        status={bootStatus}
+        elapsed={bootElapsed}
+        error={bootError}
+        onRetry={() => void bootstrap(true)}
+        onClose={() => void window.mega.app.quit()}
+      />
+    )
+  }
+
   if (!account) {
     return (
       <>
@@ -365,10 +431,10 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Titlebar />
+      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
-          <img src="/logo.png" alt="MegaClient" />
+          <img src="./logo.png" alt="MegaClient" />
           <span><strong>MegaClient</strong><small>MegaStudios</small></span>
         </button>
         <nav>
@@ -403,11 +469,20 @@ function App() {
             <button onClick={() => window.mega.app.installUpdate()}>Restart and update</button>
           </div>
         )}
+        {update?.state === 'downloading' && (
+          <div className="update-banner quiet">
+            <RefreshCw className="spin" size={16} />
+            <span>Downloading launcher update · {Math.round(update.percent ?? 0)}%</span>
+            <div className="banner-progress"><i style={{ width: `${Math.max(2, update.percent ?? 0)}%` }} /></div>
+          </div>
+        )}
+        {launching && <ActivityBanner progress={launchProgress} onConsole={() => window.mega.instances.openConsole()} />}
         {tab === 'home' && (
           <HomeView
             selected={selected}
             launching={launching}
             progress={launchProgress}
+            clientVersion={clientVersion}
             onLaunch={launch}
             onInstances={() => setTab('instances')}
             onBrowse={() => setTab('browse')}
@@ -431,10 +506,72 @@ function App() {
         {tab === 'servers' && <ServersView selected={selected} launching={launching} notify={notify} />}
         {tab === 'cosmetics' && <CosmeticsView account={account} notify={notify} />}
         {tab === 'settings' && settings && (
-          <SettingsView settings={settings} setSettings={setSettings} update={update} notify={notify} />
+          <SettingsView settings={settings} setSettings={setSettings} update={update} version={version} clientVersion={clientVersion} notify={notify} />
         )}
       </main>
       {toast && <Toast toast={toast} />}
+    </div>
+  )
+}
+
+function StartupView({ status, elapsed, error, onRetry, onClose }: {
+  status: BootStatus
+  elapsed: number
+  error?: string
+  onRetry: () => void
+  onClose: () => void
+}) {
+  const value = Math.max(4, Math.min(100, Number(status.value) || 0))
+  const steps = [
+    { label: 'Launcher interface', threshold: 25 },
+    { label: 'Settings and instances', threshold: 55 },
+    { label: 'Microsoft account', threshold: 78 },
+    { label: 'Instance library', threshold: 96 }
+  ]
+
+  return (
+    <div className="startup-shell">
+      <Titlebar status={error ? 'Needs attention' : 'Starting'} />
+      <main className="startup-workspace">
+        <section className={`startup-card ${error ? 'has-error' : ''}`}>
+          <div className="startup-brand"><img src="./logo.png" alt="" /><div><strong>MegaClient</strong><span>MegaStudios</span></div></div>
+          {error ? (
+            <>
+              <div className="startup-error-icon"><AlertTriangle /></div>
+              <h1>MegaClient could not finish starting</h1>
+              <p>{error}</p>
+              <div className="startup-actions"><button className="secondary" onClick={onClose}>Close</button><button className="primary" onClick={onRetry}><RefreshCw /> Try again</button></div>
+            </>
+          ) : (
+            <>
+              <div className="startup-heading"><div><small>GETTING THINGS READY</small><h1>{status.message}</h1><p>{status.detail ?? 'MegaClient is preparing your launcher.'}</p></div><span>{Math.round(value)}%</span></div>
+              <div className="startup-progress"><i style={{ width: `${value}%` }} /></div>
+              <div className="startup-steps">
+                {steps.map((step) => {
+                  const done = value >= step.threshold
+                  const active = !done && value >= step.threshold - 24
+                  return <div key={step.label} className={done ? 'done' : active ? 'active' : ''}><span>{done ? <Check /> : active ? <RefreshCw className="spin" /> : <i />}</span><strong>{step.label}</strong></div>
+                })}
+              </div>
+              <div className="startup-foot"><span><Clock3 /> {elapsed < 2 ? 'Starting now' : `${elapsed}s elapsed`}</span><small>{elapsed >= 12 ? 'Still working — Microsoft services can occasionally take a little longer.' : 'The launcher stays responsive while account and game data load.'}</small></div>
+            </>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function ActivityBanner({ progress, onConsole }: { progress: any; onConsole: () => void }) {
+  const overall = launchPhaseProgress(progress.phase, progress.progress)
+  const percent = Math.round(overall * 100)
+  return (
+    <div className="activity-banner" aria-live="polite">
+      <div className="activity-icon"><RefreshCw className="spin" /></div>
+      <div className="activity-copy"><strong>{progress.message || 'Preparing Minecraft'}</strong><small>{launchPhaseLabel(progress.phase)} · {percent}% complete</small></div>
+      {progress.total ? <span className="activity-transfer">{formatBytes(progress.downloaded)} / {formatBytes(progress.total)}</span> : null}
+      <button onClick={onConsole}><TerminalSquare /> Console</button>
+      <div className="activity-progress"><i style={{ width: `${Math.max(3, percent)}%` }} /></div>
     </div>
   )
 }
@@ -485,7 +622,7 @@ export function SplashWindow() {
   return (
     <div className="splash compact-splash separate-splash">
       <section className="splash-surface">
-        <div className="splash-mark"><img src="/logo.png" alt="" /></div>
+        <div className="splash-mark"><img src="./logo.png" alt="" /></div>
         <div className="splash-copy"><strong>MegaClient</strong><span>{progress.message}</span></div>
         <span className="splash-percent">{Math.round(progress.value)}%</span>
         <div className="splash-progress" aria-label={`Loading ${Math.round(progress.value)}%`}><i style={{ width: `${progress.value}%` }} /></div>
@@ -502,7 +639,7 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
       <div className="login-ambient ambient-two" />
       <section className="login-card">
         <div className="login-brand">
-          <div className="login-logo-wrap"><img src="/logo.png" alt="" /></div>
+          <div className="login-logo-wrap"><img src="./logo.png" alt="" /></div>
           <div><strong>MegaClient</strong><small>MegaStudios · v{version}</small></div>
         </div>
         <div className="login-copy">
@@ -528,17 +665,18 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
         <div className="login-art-grid" />
         <div className="login-orbit orbit-a" />
         <div className="login-orbit orbit-b" />
-        <img src="/logo.png" alt="" />
+        <img src="./logo.png" alt="" />
         <div className="login-art-label"><span>MEGACLIENT</span><strong>Ready when you are.</strong></div>
       </aside>
     </div>
   )
 }
 
-function Titlebar() {
+function Titlebar({ status }: { status?: string } = {}) {
   return (
     <header className="titlebar">
-      <div className="titlebar-label"><img src="/logo.png" alt="" /><span>MegaClient</span></div>
+      <div className="titlebar-label"><img src="./logo.png" alt="" /><span>MegaClient</span></div>
+      {status && <div className="titlebar-status"><i className={status === 'Ready' ? 'ready' : ''} /><span>{status}</span></div>}
       <div className="drag-region" />
       <div className="window-buttons">
         <button aria-label="Minimise" onClick={() => window.mega.window.minimize()}><Minus size={15} /></button>
@@ -563,7 +701,7 @@ function PageHeading({ eyebrow, title, description, actions }: {
   )
 }
 
-function HomeView({ selected, launching, progress, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
+function HomeView({ selected, launching, progress, clientVersion, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
   return (
     <div className="page home-page">
       <section className="hero-card">
@@ -579,23 +717,24 @@ function HomeView({ selected, launching, progress, onLaunch, onInstances, onBrow
             <button className="secondary large" onClick={onInstances}><Library size={18} /> Instances</button>
           </div>
         </div>
-        <div className="hero-mark"><div className="orbit one" /><div className="orbit two" /><img src="/logo.png" alt="" /></div>
+        <div className="hero-mark"><div className="orbit one" /><div className="orbit two" /><img src="./logo.png" alt="" /></div>
       </section>
 
       <div className="home-grid">
         <section className="panel selected-panel">
-          <div className="panel-title"><span>Selected instance</span>{selected && <span className="status-dot">Ready</span>}</div>
+          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
           {selected ? (
             <>
               <div className="instance-feature">
-                <div className="instance-icon">{selected.customClient ? <img src="/logo.png" alt="" /> : <Gamepad2 />}</div>
-                <div><h3>{selected.name}</h3><p>Minecraft {selected.minecraftVersion} · {loaderLabel(selected.loader)}</p></div>
+                <div className="instance-icon">{selected.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 />}</div>
+                <div><h3>{selected.name}</h3><p>Minecraft {selected.minecraftVersion} · {loaderLabel(selected.loader)}{selected.customClient ? ` · Client ${clientVersion}` : ''}</p></div>
               </div>
               {launching ? (
-                <div className="launch-status">
-                  <div className="launch-row"><span>{progress.message}</span><span>{progress.progress != null ? `${Math.round(progress.progress * 100)}%` : ''}</span></div>
-                  <div className="progress"><i style={{ width: `${Math.max(4, (progress.progress ?? 0.04) * 100)}%` }} /></div>
-                  {progress.total ? <small>{formatBytes(progress.downloaded)} of {formatBytes(progress.total)} · {formatBytes((progress.speed ?? 0) * 1024)}/s</small> : null}
+                <div className="launch-status detailed">
+                  <div className="launch-row"><span>{progress.message}</span><span>{Math.round(launchPhaseProgress(progress.phase, progress.progress) * 100)}%</span></div>
+                  <div className="progress"><i style={{ width: `${Math.max(4, launchPhaseProgress(progress.phase, progress.progress) * 100)}%` }} /></div>
+                  <div className="launch-detail"><span>{launchPhaseLabel(progress.phase)}</span>{progress.total ? <small>{formatBytes(progress.downloaded)} of {formatBytes(progress.total)} · {formatBytes((progress.speed ?? 0) * 1024)}/s</small> : <small>Working in the background</small>}</div>
+                  <button className="launch-console-link" onClick={onConsole}><TerminalSquare /> Open live console</button>
                 </div>
               ) : (
                 <div className="instance-meta">
@@ -649,7 +788,7 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
         {instances.map((instance: Instance) => (
           <article key={instance.id} className={`instance-card ${selectedId === instance.id ? 'selected' : ''}`} onClick={() => onSelect(instance.id)}>
             <div className="instance-card-top">
-              <div className="instance-icon big">{instance.customClient ? <img src="/logo.png" alt="" /> : <Gamepad2 size={25} />}</div>
+              <div className="instance-icon big">{instance.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={25} />}</div>
               <div className="instance-actions">
                 <button title="Open folder" onClick={(event) => { event.stopPropagation(); void window.mega.instances.openFolder(instance.id) }}><FolderOpen size={16} /></button>
                 <button title="Delete" className="danger-icon" onClick={(event) => { event.stopPropagation(); setPendingDelete(instance) }}><Trash2 size={16} /></button>
@@ -962,7 +1101,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         </div>
         <div className="choice-row" aria-label="Instance type">
           <button type="button" className={!custom ? 'chosen' : ''} onClick={() => setCustom(false)}><Gamepad2 /><span><strong>Standard</strong><small>Vanilla or a mod loader</small></span></button>
-          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="/logo.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2</small></span></button>
+          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="./logo.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2</small></span></button>
         </div>
         <label className="field-label">Instance name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={48} autoFocus /></label>
         {!custom && (
@@ -1003,8 +1142,8 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         )}
         {custom && (
           <div className="client-note">
-            <img src="/logo.png" alt="" />
-            <div><strong>MegaClient 0.9.6</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
+            <img src="./logo.png" alt="" />
+            <div><strong>MegaClient 0.11.11</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
         )}
@@ -1096,17 +1235,28 @@ function BrowseView({ selected, onChanged, notify }: { selected?: Instance; onCh
         <div className="search-box"><Search size={17} /><input placeholder={`Search ${labels[type]}…`} value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} />{loading && <RefreshCw className="spin" size={16} />}</div>
       </div>
       {installing && progress && <ProgressStrip progress={progress} />}
-      <div className={`content-list ${loading ? 'is-loading' : ''}`}>
+      {loading && !results.length && <LoadingRows count={5} />}
+      <div className={`content-list ${loading && results.length ? 'is-loading' : ''}`} aria-busy={loading}>
         {results.map((hit) => (
           <article key={hit.project_id} className="content-card">
             <div className="content-icon">{hit.icon_url ? <img src={hit.icon_url} alt="" loading="lazy" decoding="async" /> : fallbackIcon}</div>
             <div className="content-copy"><h3>{hit.title}<span>by {hit.author}</span></h3><p>{hit.description}</p><div className="content-meta"><span><Download size={13} />{formatDownloads(hit.downloads)}</span>{hit.categories.slice(0, 2).map((category) => <span key={category}>{category}</span>)}</div></div>
-            <button className="secondary install-button" disabled={!selected || Boolean(installing)} onClick={() => install(hit)}>{installing === hit.project_id ? <RefreshCw className="spin" /> : <Download />} Install</button>
+            <button className="secondary install-button" disabled={!selected || Boolean(installing)} onClick={() => install(hit)}>{installing === hit.project_id ? <RefreshCw className="spin" /> : <Download />} {installing === hit.project_id ? 'Installing…' : 'Install'}</button>
           </article>
         ))}
       </div>
       {!loading && !results.length && <div className="empty-state small"><Search /><h2>No matching content</h2><p>Try a different search or instance.</p></div>}
       {totalHits > pageSize && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
+    </div>
+  )
+}
+
+function LoadingRows({ count = 4, compact = false }: { count?: number; compact?: boolean }) {
+  return (
+    <div className={`loading-rows ${compact ? 'compact' : ''}`} aria-label="Loading content" aria-busy="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div className="loading-row" key={index}><i /><span><b /><small /></span><em /></div>
+      ))}
     </div>
   )
 }
@@ -1133,10 +1283,12 @@ function Pagination({ page, pageCount, onChange }: { page: number; pageCount: nu
 }
 
 function ProgressStrip({ progress }: { progress: any }) {
+  const determinate = Number.isFinite(progress?.progress)
+  const percent = determinate ? Math.max(0, Math.min(100, Math.round(progress.progress * 100))) : 0
   return (
-    <div className="install-strip">
+    <div className="install-strip" aria-live="polite">
       <RefreshCw className="spin" />
-      <div><strong>{progress.message}</strong><div className="progress"><i style={{ width: `${Math.round((progress.progress ?? 0.08) * 100)}%` }} /></div></div>
+      <div><strong>{progress.message}</strong><small>{determinate ? `${percent}%` : 'Working…'}</small><div className={`progress ${determinate ? '' : 'indeterminate'}`}><i style={determinate ? { width: `${Math.max(3, percent)}%` } : undefined} /></div></div>
     </div>
   )
 }
@@ -1257,6 +1409,7 @@ function ModsManager({ selected, notify }: { selected?: Instance; notify: (messa
       {selected?.loader === 'vanilla' && <div className="notice compact-notice"><Info /><div><strong>Vanilla does not load mods</strong><p>Use Fabric, Forge or NeoForge for mod JARs.</p></div></div>}
       <div className="mods-table">
         <div className="mods-head"><span>Mod</span><span>Version</span><span>Source</span><span>Status</span><span /></div>
+        {loading && !mods.length && <LoadingRows count={4} compact />}
         {mods.map((mod) => (
           <div className={`mod-row ${!mod.enabled ? 'disabled' : ''}`} key={mod.fileName}>
             <div className="mod-name"><div>{mod.iconUrl ? <img src={mod.iconUrl} alt="" loading="lazy" /> : <Box />}</div><span><strong>{mod.title}</strong><small>{mod.fileName}</small></span></div>
@@ -1318,6 +1471,7 @@ function PacksManager({ selected, type, notify }: { selected?: Instance; type: '
         description={`Manage ${label.toLowerCase()} installed for this instance.`}
         actions={<button className="secondary" disabled={!selected} onClick={() => selected && window.mega.packs.openFolder(selected.id, type)}><FolderOpen size={16} /> Open folder</button>}
       />
+      {loading && !packs.length && <LoadingRows count={4} compact />}
       <div className="pack-grid">
         {packs.map((pack) => (
           <article className={`pack-card ${pack.enabled ? '' : 'disabled'}`} key={`${pack.contentType}:${pack.fileName}`}>
@@ -1394,6 +1548,7 @@ function WorldsManager({ selected, notify }: { selected?: Instance; notify: (mes
         actions={<><button className="secondary" disabled={!selected} onClick={() => selected && window.mega.worlds.openFolder(selected.id)}><FolderOpen size={16} /> Saves folder</button><button className="secondary" disabled={!selected} onClick={importWorld}><Upload size={16} /> Import ZIP</button><button className="primary" disabled={!selected} onClick={() => setDownloadOpen(true)}><Download size={16} /> Download world</button></>}
       />
       {progress && <ProgressStrip progress={progress} />}
+      {loading && !worlds.length && <LoadingRows count={3} compact />}
       <div className="world-grid">
         {worlds.map((world) => (
           <article className="world-card" key={world.id}>
@@ -1596,10 +1751,12 @@ function CosmeticsView({ account, notify }: {
   )
 }
 
-function SettingsView({ settings, setSettings, update, notify }: {
+function SettingsView({ settings, setSettings, update, version, clientVersion, notify }: {
   settings: SettingsData
   setSettings: (settings: SettingsData) => void
   update: any
+  version: string
+  clientVersion: string
   notify: (message: string, kind?: ToastKind) => void
 }) {
   const [draft, setDraft] = useState(settings)
@@ -1650,13 +1807,14 @@ function SettingsView({ settings, setSettings, update, notify }: {
 
         <section className="settings-section">
           <div className="settings-title"><RefreshCw /><div><h3>Updates & versions</h3><p>Keep MegaClient current</p></div></div>
+          <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2</strong></span></div>
           <SettingToggle title="Automatic update checks" description="Check for launcher updates quietly when MegaClient starts." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
           <SettingToggle title="Show snapshots" description="Include Minecraft snapshots in the instance version list." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
-          <div className="update-row"><span>{update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent)}%` : update?.state === 'ready' ? `Version ${update.version} ready` : 'MegaClient updates'}</span><button className="secondary" onClick={async () => { await window.mega.app.checkUpdates(); notify('Update check started.', 'success') }}><RefreshCw /> Check now</button></div>
+          <div className="update-row"><span>{update?.state === 'checking' ? 'Checking for updates…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%` : update?.state === 'ready' ? `Version ${update.version} ready` : update?.state === 'current' ? 'You are up to date' : update?.state === 'error' ? 'Update check could not finish' : 'MegaClient updates'}</span><button className="secondary" onClick={async () => { await window.mega.app.checkUpdates(); notify('Update check started.', 'success') }}><RefreshCw /> Check now</button></div>
         </section>
 
         <section className="settings-section full security-locked compact-security">
-          <div className="settings-title"><ShieldCheck /><div><h3>Launch protection</h3><p>Required checks run automatically whenever Minecraft starts.</p></div><span className="always-on"><Lock size={12} /> Always on</span></div>
+          <div className="settings-title"><ShieldCheck /><div><h3>Launch protection</h3><p>High-confidence checks run automatically without blocking normal mods for compatibility references or addon filenames.</p></div><span className="always-on"><Lock size={12} /> Always on</span></div>
         </section>
 
         <section className="settings-section full">

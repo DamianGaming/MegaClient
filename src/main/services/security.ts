@@ -1,4 +1,3 @@
-import AdmZip from 'adm-zip'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
@@ -7,16 +6,9 @@ import os from 'node:os'
 import { promisify } from 'node:util'
 import type { LauncherInstance } from '../types'
 import { emlRootDirectory, modsDirectory } from './paths'
+import { inspectModJar } from './modSecurity'
 
 const execFileAsync = promisify(execFile)
-
-// High-confidence identifiers only. Detection also inspects archive metadata and
-// class paths, so changing a downloaded JAR's filename does not bypass the check.
-const BLOCKED_MOD_MARKERS = [
-  'meteorclient', 'liquidbounce', 'wurstclient', 'wurst-client', 'aristois', 'impactclient',
-  'bleachhack', 'inertiaclient', 'sigma-client', 'futureclient', 'rusherhack', 'vapeclient',
-  'horionclient', 'nursultanclient', 'ghostclient', 'doomsdayclient', 'prestigeclient'
-]
 
 const BLOCKED_PROCESS_MARKERS = [
   'cheatengine', 'cheat engine', 'extreme injector', 'xenos injector', 'xenos64', 'xenos.exe',
@@ -53,7 +45,6 @@ export interface SecurityFinding {
 }
 
 const signatureCache = new Map<string, { status: string; expiresAt: number }>()
-const jarScanCache = new Map<string, { stamp: string; finding: SecurityFinding | null }>()
 let processCache: { expiresAt: number; values: ProcessInfo[] } | null = null
 
 function normalise(value: unknown): string {
@@ -84,48 +75,6 @@ async function listProcesses(force = false): Promise<ProcessInfo[]> {
   return values
 }
 
-async function fileStamp(file: string): Promise<string> {
-  const stat = await fs.stat(file)
-  return `${stat.size}:${Math.floor(stat.mtimeMs)}`
-}
-
-function metadataText(zip: AdmZip, file: string): string {
-  const metadataNames = new Set([
-    'fabric.mod.json', 'quilt.mod.json', 'mcmod.info', 'meta-inf/mods.toml',
-    'meta-inf/neoforge.mods.toml', 'meta-inf/manifest.mf'
-  ])
-  let searchable = normalise(path.basename(file))
-  for (const entry of zip.getEntries().slice(0, 8000)) {
-    const entryName = normalise(entry.entryName)
-    searchable += `\n${entryName}`
-    if (!entry.isDirectory && metadataNames.has(entryName)) {
-      searchable += `\n${normalise(entry.getData().toString('utf8').slice(0, 400_000))}`
-    }
-  }
-  return searchable
-}
-
-async function inspectJar(file: string): Promise<SecurityFinding | null> {
-  try {
-    const stamp = await fileStamp(file)
-    const cached = jarScanCache.get(file)
-    if (cached?.stamp === stamp) return cached.finding
-
-    const zip = new AdmZip(file)
-    const searchable = metadataText(zip, file)
-    const marker = firstMarker(searchable, BLOCKED_MOD_MARKERS)
-    const finding = marker ? {
-      category: 'mod' as const,
-      title: 'Blocked client modification detected',
-      detail: `${path.basename(file)} contains a blocked client identifier (${marker}).`
-    } : null
-    jarScanCache.set(file, { stamp, finding })
-    return finding
-  } catch {
-    return null
-  }
-}
-
 export async function scanInstanceMods(instance: LauncherInstance): Promise<SecurityFinding[]> {
   const directory = modsDirectory(instance.slug)
   const names = await fs.readdir(directory).catch(() => [] as string[])
@@ -135,8 +84,10 @@ export async function scanInstanceMods(instance: LauncherInstance): Promise<Secu
   // Keep archive inspection bounded so large mod folders do not create a memory spike
   // or monopolise the Electron main process for a long uninterrupted burst.
   for (let index = 0; index < candidates.length; index += 3) {
-    const batch = await Promise.all(candidates.slice(index, index + 3).map((name) => inspectJar(path.join(directory, name))))
-    findings.push(...batch.filter((finding): finding is SecurityFinding => Boolean(finding)))
+    const batch = await Promise.all(candidates.slice(index, index + 3).map((name) => inspectModJar(path.join(directory, name))))
+    for (const finding of batch) {
+      if (finding) findings.push(finding)
+    }
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
   return findings

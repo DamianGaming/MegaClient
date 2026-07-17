@@ -1,37 +1,15 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import type { Plugin } from 'vite'
 import { resolve } from 'node:path'
-
-function relativeRendererAssets(): Plugin {
-  return {
-    name: 'megaclient-relative-renderer-assets',
-    enforce: 'pre',
-    transform(code: string, id: string) {
-      if (!/\.(?:[cm]?[jt]sx?)$/.test(id)) return null
-
-      const transformed = code
-        .replaceAll('"/logo.png"', '"./logo.png"')
-        .replaceAll("'/logo.png'", "'./logo.png'")
-
-      return transformed === code
-        ? null
-        : {
-            code: transformed,
-            map: null
-          }
-    }
-  }
-}
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    build: {
-      sourcemap: true
-    }
+    build: { sourcemap: true }
   },
   preload: {
+    // Sandboxed Electron preload scripts cannot execute native ESM imports.
+    // Force one CommonJS preload bundle so contextBridge remains available.
     build: {
       sourcemap: true,
       rollupOptions: {
@@ -45,7 +23,8 @@ export default defineConfig({
   },
   renderer: {
     root: resolve('src/renderer'),
-    plugins: [relativeRendererAssets(), react()],
+    base: './',
+    plugins: [react()],
     build: {
       sourcemap: true,
       assetsDir: 'assets'

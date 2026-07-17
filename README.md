@@ -1,31 +1,46 @@
-# MegaClient Launcher 1.7.1
+# MegaClient Launcher 1.8.1
 
-MegaClient is a Windows Minecraft launcher with isolated instances, Microsoft authentication, Modrinth content management, partner servers, cosmetics, automatic Java management and the protected MegaClient custom client.
+MegaClient is a Windows Minecraft launcher with isolated Vanilla, Fabric, Forge and NeoForge instances, Microsoft sign-in, Modrinth content management, clear startup and launch progress, automatic updates and the protected MegaClient client.
 
-## This update
+## What changed in 1.8.1
 
-- Replaced the protected custom client with MegaClient `0.9.6`.
-- Updated the in-game launch verifier to require MegaClient `0.9.6`.
-- Updated all launcher branding to `MegaStudios`.
-- Added the launcher version to the login screen and sidebar.
-- Kept all existing 1.7.0 functionality unchanged.
+- Launch protection now uses structured mod metadata instead of searching every filename, description, dependency and class path for loose keywords.
+- Legitimate mods are no longer blocked simply because they mention a blocked client for compatibility, depend on it as an addon, or contain a similarly named class path.
+- Addon-style filenames such as `meteor-client-addon.jar` and `wurst-client-addon.jar` are not treated as the original client.
+- A mod is blocked only when its own declared mod ID/display name is an exact high-confidence match, or its JAR has a clear versioned release filename match.
+- Fabric, Quilt, Forge, NeoForge and legacy metadata formats are checked directly.
+- Protection messages now explain the exact evidence used for a block.
+- The launcher security status text now makes the high-confidence policy clearer.
+- MegaClient client version remains **0.11.11** for **Minecraft 26.2**.
 
-## Development
+## Setup
 
 ```bat
 setup-windows.cmd
+```
+
+Development:
+
+```bat
 run-development.cmd
 ```
 
-## Windows installer
+Validation:
 
 ```bat
-build-windows-installer.cmd
+npm run client:verify
+npm run typecheck
+npm run build
 ```
 
-## Protected client
+## Publishing 1.8.1
 
-```text
-MegaClient version: 0.9.6
-SHA-256: 21f4d5c2a8db99ef7a50b6e72d6a4cbc4348e6169a19a3cf1a23b889ce5f9f15
+```bat
+publish-update.cmd
+```
+
+Enter `1.8.1`, or run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\release.ps1" -Version 1.8.1
 ```

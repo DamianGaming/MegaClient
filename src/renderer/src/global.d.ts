@@ -8,10 +8,13 @@ declare global {
       app: {
         bootstrap(): Promise<any>
         rendererReady(): Promise<void>
+        reload(): Promise<void>
+        quit(): Promise<void>
         getVersions(includeSnapshots: boolean): Promise<Array<{ id: string; type: string }>>
         getLoaderVersions(loader: string, version: string): Promise<string[]>
         checkUpdates(): Promise<any>
         installUpdate(): Promise<void>
+        onBootStatus(callback: (event: { value: number; message: string; detail?: string }) => void): () => void
         onUpdate(callback: (event: any) => void): () => void
         onSplashProgress(callback: (event: { value: number; message: string }) => void): () => void
       }

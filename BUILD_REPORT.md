@@ -1,30 +1,32 @@
-# MegaClient 1.7.1 Build Report
+# MegaClient 1.8.1 Build Report
 
-## Protected client
+## Included versions
 
-- Mod ID: `megaclient`
-- Version: `0.9.6`
-- SHA-256: `21f4d5c2a8db99ef7a50b6e72d6a4cbc4348e6169a19a3cf1a23b889ce5f9f15`
-- Fabric Loader: `>=0.19.3`
-- Minecraft: `~26.2`
-- Java: `>=25`
+- Launcher: `1.8.1`
+- Protected MegaClient client: `0.11.11`
+- Minecraft target: `26.2`
 
-## Launch verifier
+## False-positive protection changes
 
-- Version: `1.7.1`
-- SHA-256: `1c1b1d0152b5f483cc6e96bcd4f51c9c46c908aad579eb5462809c5ca0b79197`
-- Required client: `megaclient =0.9.6`
+- Replaced broad full-archive keyword searching with structured metadata parsing.
+- Checks the mod's own Fabric, Quilt, Forge, NeoForge or legacy identity fields.
+- Ignores dependency declarations, descriptions and unrelated class paths.
+- Versioned release filenames remain a secondary high-confidence signal.
+- Addon and compatibility filenames are not blocked solely by their name.
+- Findings include the exact evidence used.
 
-## Source changes
+## Validation completed
 
-- Launcher version updated to `1.7.1`.
-- Branding changed to `MegaStudios`.
-- Version number added to the login and signed-in interface.
+- Protected client resource verification: passed.
+- TypeScript strict type check: passed.
+- Electron/Vite production build: passed.
+- Security regression fixtures: passed.
+  - Legitimate compatibility metadata containing blocked names: allowed.
+  - Legitimate addon filename: allowed.
+  - Normal performance mod: allowed.
+  - Renamed JAR with an exact blocked mod identity: blocked.
+  - Clear versioned blocked-client release filename: blocked.
 
-## Validation
+## Limitations
 
-- `npm run client:verify`: PASS
-- `npm run typecheck`: PASS
-- `npm run build`: PASS
-- Encrypted payload matches the supplied MegaClient 0.9.6 JAR byte-for-byte.
-- Launch verifier constants and Fabric dependency require MegaClient 0.9.6.
+A full Microsoft-authenticated Windows Minecraft launch and NSIS installer execution were not run in this Linux environment. Test the GitHub Actions installer on Windows before public release.

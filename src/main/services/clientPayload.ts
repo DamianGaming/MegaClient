@@ -11,9 +11,12 @@ import { metadataDirectory, modsDirectory } from './paths'
 const execFileAsync = promisify(execFile)
 const MAGIC = Buffer.from('MCB1', 'ascii')
 const AAD = Buffer.from('MegaClientPayload:v1', 'utf8')
-export const EXPECTED_CLIENT_JAR_SHA256 = '21f4d5c2a8db99ef7a50b6e72d6a4cbc4348e6169a19a3cf1a23b889ce5f9f15'
-const EXPECTED_VERIFIER_SHA256 = '1c1b1d0152b5f483cc6e96bcd4f51c9c46c908aad579eb5462809c5ca0b79197'
-const KEY_PARTS = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.9.6'] as const
+export const EXPECTED_CLIENT_JAR_SHA256 = 'cba1cb5623b88194f87f38eec9642b3bc137c938bf4735f9ae72f787b849c8e8'
+const EXPECTED_VERIFIER_SHA256 = '0fc6775b6991b2a6810e7933a915f6ba3982d6559e12fd43035b66173cc268dc'
+export const PROTECTED_CLIENT_VERSION = '0.11.11'
+export const PROTECTED_MINECRAFT_VERSION = '26.2'
+export const MINIMUM_PROTECTED_CLIENT_LOADER = '0.19.3'
+const KEY_PARTS = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${PROTECTED_MINECRAFT_VERSION}::${PROTECTED_CLIENT_VERSION}`] as const
 const EXPECTED_CLIENT_CLASS_VERSION = 69 // Java 25
 export const PROTECTED_RUNTIME_PREFIX = 'mc-runtime-'
 
@@ -31,7 +34,8 @@ async function findBundledResource(fileName: string): Promise<string> {
   const candidates = [
     path.join(app.getAppPath(), 'resources', 'client', fileName),
     path.join(process.resourcesPath, 'app.asar', 'resources', 'client', fileName),
-    path.join(process.resourcesPath, 'resources', 'client', fileName)
+    path.join(process.resourcesPath, 'resources', 'client', fileName),
+    path.join(process.resourcesPath, 'client', fileName)
   ]
 
   for (const candidate of [...new Set(candidates)]) {
@@ -168,13 +172,13 @@ function verifyFabricMetadata(jarPath: string): void {
     entrypoints?: { client?: string[] }
     depends?: Record<string, string>
   }
-  if (metadata.id !== 'megaclient' || metadata.version !== '0.9.6') {
-    throw new Error('The protected client metadata does not match MegaClient 0.9.6.')
+  if (metadata.id !== 'megaclient' || metadata.version !== PROTECTED_CLIENT_VERSION) {
+    throw new Error(`The protected client metadata does not match MegaClient ${PROTECTED_CLIENT_VERSION}.`)
   }
   if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.includes('dev.velora.client.VeloraClient')) {
     throw new Error('The protected MegaClient JAR has no valid client entrypoint.')
   }
-  if (metadata.depends?.minecraft !== '~26.2' || metadata.depends?.fabricloader !== '>=0.19.3') {
+  if (metadata.depends?.minecraft !== `~${PROTECTED_MINECRAFT_VERSION}` || metadata.depends?.fabricloader !== `>=${MINIMUM_PROTECTED_CLIENT_LOADER}`) {
     throw new Error('The protected MegaClient JAR has unexpected Minecraft or Fabric requirements.')
   }
 

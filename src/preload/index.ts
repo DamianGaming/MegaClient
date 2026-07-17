@@ -14,10 +14,17 @@ const api = {
   app: {
     bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
     rendererReady: () => ipcRenderer.invoke('app:renderer-ready'),
+    reload: () => ipcRenderer.invoke('app:reload'),
+    quit: () => ipcRenderer.invoke('app:quit'),
     getVersions: (includeSnapshots: boolean) => ipcRenderer.invoke('versions:minecraft', includeSnapshots),
     getLoaderVersions: (loader: string, version: string) => ipcRenderer.invoke('versions:loader', loader, version),
     checkUpdates: () => ipcRenderer.invoke('updates:check'),
     installUpdate: () => ipcRenderer.invoke('updates:install'),
+    onBootStatus: (callback: (event: { value: number; message: string; detail?: string }) => void) => {
+      const listener = (_: unknown, payload: { value: number; message: string; detail?: string }) => callback(payload)
+      ipcRenderer.on('app:boot-status', listener)
+      return () => ipcRenderer.removeListener('app:boot-status', listener)
+    },
     onUpdate: (callback: (event: unknown) => void) => {
       const listener = (_: unknown, payload: unknown) => callback(payload)
       ipcRenderer.on('updates:event', listener)

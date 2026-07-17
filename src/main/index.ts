@@ -9,7 +9,7 @@ import { login, logout, restore } from './services/account'
 import { createInstance, deleteInstance, getInstance, openInstanceFolder, updateInstance, copyLocalMod } from './services/instances'
 import { getLoaderVersions, getMinecraftVersions } from './services/versions'
 import { installMod, installModpack, installPack, listMods, listPacks, removeMod, removePack, searchContent, setModEnabled, setPackEnabled, updateAllMods, updateMod } from './services/modrinth'
-import { launchInstance, openLaunchConsole } from './services/launcher'
+import { CLIENT_VERSION, launchInstance, openLaunchConsole } from './services/launcher'
 import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
@@ -19,6 +19,10 @@ let mainWindow: BrowserWindow | null = null
 let splashWindow: BrowserWindow | null = null
 let updateReady = false
 let splashProgress = { value: 6, message: 'Starting MegaClient' }
+let mainWindowRevealed = false
+let unresponsiveTimer: NodeJS.Timeout | null = null
+let rendererRecoveryAttempts = 0
+let lastUpdateProgressSentAt = 0
 
 function iconPath(): string {
   return app.isPackaged
@@ -35,11 +39,49 @@ function rendererUrl(view: 'main' | 'splash'): string {
 }
 
 function loadRenderer(window: BrowserWindow, view: 'main' | 'splash'): void {
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(rendererUrl(view))
-  } else {
-    void window.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { view } })
+  const loading = process.env.ELECTRON_RENDERER_URL
+    ? window.loadURL(rendererUrl(view))
+    : window.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { view } })
+
+  void loading.catch((error) => {
+    console.error(`[MegaClient] Failed to open the ${view} interface.`, error)
+  })
+}
+
+function sendBootStatus(value: number, message: string, detail?: string): void {
+  setSplashProgress(value, message)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:boot-status', { value, message, detail })
   }
+}
+
+function clearUnresponsiveTimer(): void {
+  if (unresponsiveTimer) clearTimeout(unresponsiveTimer)
+  unresponsiveTimer = null
+}
+
+function scheduleUnresponsiveRecovery(window: BrowserWindow): void {
+  if (window !== mainWindow || window.isDestroyed()) return
+  clearUnresponsiveTimer()
+  unresponsiveTimer = setTimeout(() => {
+    if (window.isDestroyed()) return
+    void dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'MegaClient is taking longer than expected',
+      message: 'The launcher interface has stopped responding.',
+      detail: 'Minecraft and active downloads are kept separate. You can wait a little longer or safely reload only the launcher interface.',
+      buttons: ['Reload interface', 'Keep waiting'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    }).then(({ response }) => {
+      if (response === 0 && !window.isDestroyed()) window.webContents.reload()
+    }).catch(() => undefined)
+  }, 7_000)
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 function setSplashProgress(value: number, message: string): void {
@@ -56,8 +98,33 @@ function configureRendererWindow(window: BrowserWindow): void {
   window.webContents.on('did-fail-load', (_event, code, description, validatedUrl) => {
     console.error(`[MegaClient] Renderer failed to load (${code}): ${description} — ${validatedUrl}`)
   })
+  window.on('unresponsive', () => {
+    console.warn('[MegaClient] Renderer became unresponsive.')
+    scheduleUnresponsiveRecovery(window)
+  })
+  window.on('responsive', () => {
+    clearUnresponsiveTimer()
+    console.info('[MegaClient] Renderer is responsive again.')
+  })
   window.webContents.on('render-process-gone', (_event, details) => {
     console.error('[MegaClient] Renderer process ended unexpectedly.', details)
+    if (window !== mainWindow || window.isDestroyed() || details.reason === 'clean-exit') return
+    if (rendererRecoveryAttempts >= 2) {
+      void dialog.showMessageBox({
+        type: 'error',
+        title: 'MegaClient interface closed unexpectedly',
+        message: 'MegaClient could not automatically recover the launcher interface.',
+        detail: 'Close the launcher and open it again. Minecraft files and instances are not removed.',
+        buttons: ['Close MegaClient'],
+        noLink: true
+      }).finally(() => app.quit())
+      return
+    }
+    rendererRecoveryAttempts += 1
+    sendBootStatus(36, 'Recovering launcher interface')
+    setTimeout(() => {
+      if (!window.isDestroyed()) window.webContents.reload()
+    }, 450)
   })
   if (!app.isPackaged) {
     window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
@@ -85,6 +152,7 @@ function createSplashWindow(): void {
     skipTaskbar: true,
     backgroundColor: '#0b0d12',
     icon: iconPath(),
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -118,6 +186,7 @@ function createMainWindow(): void {
     titleBarStyle: 'hidden',
     backgroundColor: '#0b0d12',
     icon: iconPath(),
+    paintWhenInitiallyHidden: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -137,6 +206,7 @@ function createMainWindow(): void {
 }
 
 function createWindows(): void {
+  mainWindowRevealed = false
   splashProgress = { value: 6, message: 'Starting MegaClient' }
   createSplashWindow()
   setSplashProgress(22, 'Preparing launcher')
@@ -145,19 +215,20 @@ function createWindows(): void {
 
 async function revealMainWindow(): Promise<void> {
   const window = requireWindow()
+  if (mainWindowRevealed) return
+  mainWindowRevealed = true
   if (window.isMinimized()) window.restore()
   window.center()
   window.show()
   window.focus()
-  setSplashProgress(100, 'Ready')
 
   const splash = splashWindow
   if (!splash || splash.isDestroyed()) return
-  await new Promise((resolve) => setTimeout(resolve, 180))
-  for (let opacity = 1; opacity >= 0; opacity -= 0.12) {
+  await new Promise((resolve) => setTimeout(resolve, 120))
+  for (let opacity = 1; opacity >= 0; opacity -= 0.16) {
     if (splash.isDestroyed()) return
     splash.setOpacity(Math.max(0, opacity))
-    await new Promise((resolve) => setTimeout(resolve, 16))
+    await new Promise((resolve) => setTimeout(resolve, 14))
   }
   if (!splash.isDestroyed()) splash.close()
 }
@@ -177,7 +248,12 @@ function setupUpdater(): void {
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }))
   autoUpdater.on('update-available', (info) => sendUpdate({ state: 'available', version: info.version }))
   autoUpdater.on('update-not-available', () => sendUpdate({ state: 'current' }))
-  autoUpdater.on('download-progress', (progress) => sendUpdate({ state: 'downloading', percent: progress.percent }))
+  autoUpdater.on('download-progress', (progress) => {
+    const now = Date.now()
+    if (now - lastUpdateProgressSentAt < 250 && progress.percent < 100) return
+    lastUpdateProgressSentAt = now
+    sendUpdate({ state: 'downloading', percent: progress.percent })
+  })
   autoUpdater.on('update-downloaded', (info) => { updateReady = true; sendUpdate({ state: 'ready', version: info.version }) })
   autoUpdater.on('error', (error) => sendUpdate({ state: 'error', message: error.message }))
 }
@@ -195,14 +271,23 @@ function registerIpc(): void {
   ipcMain.handle('console-window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
 
   ipcMain.handle('app:renderer-ready', () => revealMainWindow())
+  ipcMain.handle('app:reload', () => requireWindow().webContents.reload())
+  ipcMain.handle('app:quit', () => app.quit())
   ipcMain.handle('app:bootstrap', async () => {
-    setSplashProgress(72, 'Restoring your launcher')
+    sendBootStatus(48, 'Loading launcher settings', 'Reading your instances and preferences')
+    await yieldToEventLoop()
+    const snapshot = store.getData()
+    sendBootStatus(68, 'Restoring your Microsoft account', 'This can take a moment when Microsoft services are busy')
     const account = await restore(requireWindow())
-    setSplashProgress(90, 'Finishing setup')
+    sendBootStatus(88, 'Preparing your instance library', 'Checking your selected Minecraft setup')
+    await yieldToEventLoop()
+    rendererRecoveryAttempts = 0
+    sendBootStatus(100, 'MegaClient is ready')
     return {
-      ...store.getData(),
+      ...snapshot,
       account,
       version: app.getVersion(),
+      clientVersion: CLIENT_VERSION,
       packaged: app.isPackaged
     }
   })
@@ -308,6 +393,7 @@ if (!singleInstanceLock) {
 
 app.whenReady().then(async () => {
   app.setAppUserModelId('studio.megastudios.megaclient')
+  splashProgress = { value: 12, message: 'Opening MegaClient' }
   await store.initialize()
   registerIpc()
   setupUpdater()
@@ -317,5 +403,8 @@ app.whenReady().then(async () => {
   }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindows() })
 })
+
+process.on('unhandledRejection', (reason) => console.error('[MegaClient] Unhandled promise rejection:', reason))
+process.on('uncaughtException', (error) => console.error('[MegaClient] Uncaught main-process error:', error))
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

@@ -5,7 +5,14 @@ import semver from 'semver'
 import { Launcher, type Account } from 'eml-lib'
 import type { LaunchProgress, LauncherInstance } from '../types'
 import { getValidAccount } from './account'
-import { prepareClientPayload, validatePreparedClientPayloadSync, type PreparedClientPayload } from './clientPayload'
+import {
+  MINIMUM_PROTECTED_CLIENT_LOADER,
+  PROTECTED_CLIENT_VERSION,
+  PROTECTED_MINECRAFT_VERSION,
+  prepareClientPayload,
+  validatePreparedClientPayloadSync,
+  type PreparedClientPayload
+} from './clientPayload'
 import { getInstance, updateInstance } from './instances'
 import { instanceDirectory, modsDirectory } from './paths'
 import { store } from './store'
@@ -21,8 +28,12 @@ import {
   terminateProcesses
 } from './security'
 
-const MINIMUM_CLIENT_LOADER = '0.19.3'
-const CLIENT_VERSION = '0.9.6'
+const MINIMUM_CLIENT_LOADER = MINIMUM_PROTECTED_CLIENT_LOADER
+export const CLIENT_VERSION = PROTECTED_CLIENT_VERSION
+const CLIENT_MINECRAFT_VERSION = PROTECTED_MINECRAFT_VERSION
+const ESCAPED_CLIENT_VERSION = CLIENT_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const CLIENT_VERSION_PATTERN = new RegExp(`(?:^|[\\s\\-:])megaclient(?:[\\s\\-:@]|$)[^\\r\\n]{0,80}\\b${ESCAPED_CLIENT_VERSION}\\b`, 'im')
+const CLIENT_MOD_PATTERN = new RegExp(`mod\\s+megaclient\\s+${ESCAPED_CLIENT_VERSION}`, 'im')
 
 let activeLauncher: Launcher | null = null
 let consoleWindow: BrowserWindow | null = null
@@ -158,10 +169,10 @@ async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstan
       return parsed ? semver.gte(parsed, MINIMUM_CLIENT_LOADER) : false
     })
     if (!compatible) {
-      throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft 26.2.`)
+      throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
     }
     if (instance.loaderVersion !== compatible || instance.loader !== 'fabric') {
-      return updateInstance(instance.id, { loader: 'fabric', loaderVersion: compatible, minecraftVersion: '26.2' })
+      return updateInstance(instance.id, { loader: 'fabric', loaderVersion: compatible, minecraftVersion: CLIENT_MINECRAFT_VERSION })
     }
     return instance
   }
@@ -256,9 +267,9 @@ function startSecurityMonitor(mainWindow: BrowserWindow, instance: LauncherInsta
 
 function clientLoadedInText(text: string): boolean {
   return /\[MegaClient verifier\] Protected client origin and SHA-256 verified/i.test(text)
-    || /(?:^|[\s\-:])megaclient(?:[\s\-:@]|$)[^\r\n]{0,80}\b0\.9\.6\b/im.test(text)
+    || CLIENT_VERSION_PATTERN.test(text)
     || /loaded\s+mod[^\r\n]*\bmegaclient\b/im.test(text)
-    || /mod\s+megaclient\s+0\.9\.6/im.test(text)
+    || CLIENT_MOD_PATTERN.test(text)
 }
 
 function clientFailureFromLog(text: string): string | null {
@@ -385,13 +396,13 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   setConsoleState('Preparing')
 
   let instance = getInstance(instanceId)
-  if (instance.customClient && (instance.minecraftVersion !== '26.2' || instance.loader !== 'fabric')) {
-    instance = await updateInstance(instance.id, { minecraftVersion: '26.2', loader: 'fabric' })
+  if (instance.customClient && (instance.minecraftVersion !== CLIENT_MINECRAFT_VERSION || instance.loader !== 'fabric')) {
+    instance = await updateInstance(instance.id, { minecraftVersion: CLIENT_MINECRAFT_VERSION, loader: 'fabric' })
   }
   instance = await resolveLoader(instance)
 
   emit(mainWindow, 'launch:progress', { phase: 'security', message: 'Running enforced launch protection' } satisfies LaunchProgress)
-  appendConsole('[Security] Scanning enabled mods and active injection tools', 'muted')
+  appendConsole('[Security] Checking explicit blocked-client identities and active injection tools', 'muted')
   await runPreflightSecurity(instance)
 
   const account: Account = await getValidAccount(mainWindow)
