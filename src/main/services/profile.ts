@@ -3,7 +3,7 @@ import type { Account } from 'eml-lib'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { MinecraftProfileCape, MinecraftProfileData, MinecraftProfileSkin } from '../types'
-import { getValidAccount, refreshAccount } from './account'
+import { getSavedAccount, isLikelyTransientMicrosoftError, refreshAccount } from './account'
 
 interface ApiProfile {
   id?: string
@@ -27,7 +27,7 @@ const PROFILE_URL = 'https://api.minecraftservices.com/minecraft/profile'
 const SKINS_URL = `${PROFILE_URL}/skins`
 const ACTIVE_CAPE_URL = `${PROFILE_URL}/capes/active`
 const FRESH_CACHE_MS = 5 * 60_000
-const STALE_CACHE_MS = 24 * 60 * 60_000
+const STALE_CACHE_MS = 7 * 24 * 60 * 60_000
 let memoryCache: ProfileCacheRecord | null = null
 let profileInFlight: { uuid: string; promise: Promise<MinecraftProfileData> } | null = null
 
@@ -68,6 +68,18 @@ function apiError(action: string, status: number, body: string, retryAfter?: str
     return new Error(`Minecraft Services is temporarily rate-limiting skin and cape requests.${seconds ? ` Try again in about ${seconds} seconds.` : ' Please wait a moment and try again.'}`)
   }
   return new Error(`Could not ${action} (HTTP ${status})${detail ? `: ${detail}` : '.'}`)
+}
+
+
+function isTransientProfileStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status === 500 || status === 502 || status === 503 || status === 504
+}
+
+function profileServiceError(error: unknown): Error {
+  if (isLikelyTransientMicrosoftError(error)) {
+    return new Error('Minecraft profile services are temporarily unavailable. MegaClient kept your saved account and can retry without signing you out.')
+  }
+  return error instanceof Error ? error : new Error(String(error))
 }
 
 function normaliseSkins(items: ApiProfile['skins']): MinecraftProfileSkin[] {
@@ -159,12 +171,16 @@ async function authorisedFetch(
   }
 
   let account = initialAccount
-  let response = await send(account)
-  if (response.status === 401) {
-    account = await refreshAccount(mainWindow)
-    response = await send(account)
+  try {
+    let response = await send(account)
+    if (response.status === 401) {
+      account = await refreshAccount(mainWindow)
+      response = await send(account)
+    }
+    return { account, response }
+  } catch (error) {
+    throw profileServiceError(error)
   }
-  return { account, response }
 }
 
 async function requestProfileForAccount(
@@ -177,17 +193,25 @@ async function requestProfileForAccount(
   if (profileInFlight?.uuid === initialAccount.uuid) return profileInFlight.promise
 
   const promise = (async () => {
-    const { account, response } = await authorisedFetch(mainWindow, initialAccount, PROFILE_URL, () => ({ method: 'GET' }), 20_000)
-    const body = await response.text()
+    try {
+      const { account, response } = await authorisedFetch(mainWindow, initialAccount, PROFILE_URL, () => ({ method: 'GET' }), 20_000)
+      const body = await response.text()
 
-    if (!response.ok) {
-      if (response.status === 429 && cached && Date.now() - cached.fetchedAt < STALE_CACHE_MS) return cached.data
-      throw apiError('load your skin and capes', response.status, body, response.headers.get('retry-after'))
+      if (!response.ok) {
+        if (isTransientProfileStatus(response.status) && cached && Date.now() - cached.fetchedAt < STALE_CACHE_MS) return cached.data
+        throw apiError('load your skin and capes', response.status, body, response.headers.get('retry-after'))
+      }
+
+      const payload = parseProfileBody(body)
+      if (!payload) {
+        if (cached && Date.now() - cached.fetchedAt < STALE_CACHE_MS) return cached.data
+        throw new Error('Minecraft Services returned an empty profile response. Please try refreshing again.')
+      }
+      return saveCache(account.uuid, normaliseProfile(payload, cached?.data))
+    } catch (error) {
+      if (cached && Date.now() - cached.fetchedAt < STALE_CACHE_MS && isLikelyTransientMicrosoftError(error)) return cached.data
+      throw profileServiceError(error)
     }
-
-    const payload = parseProfileBody(body)
-    if (!payload) throw new Error('Minecraft Services returned an empty profile response. Please try refreshing again.')
-    return saveCache(account.uuid, normaliseProfile(payload, cached?.data))
   })()
 
   profileInFlight = { uuid: initialAccount.uuid, promise }
@@ -248,7 +272,7 @@ async function refreshSkinAfterEmptyResponse(
 }
 
 export async function getProfileData(mainWindow: BrowserWindow, force = false): Promise<MinecraftProfileData> {
-  const account = await getValidAccount(mainWindow)
+  const account = await getSavedAccount()
   return requestProfileForAccount(mainWindow, account, force)
 }
 
@@ -260,7 +284,7 @@ export async function updateSkin(
   if (!file || typeof file !== 'string') throw new Error('Choose a PNG skin before uploading.')
   if (variant !== 'classic' && variant !== 'slim') throw new Error('Choose either the classic or slim arm model.')
 
-  const account = await getValidAccount(mainWindow)
+  const account = await getSavedAccount()
   await waitForCurrentProfileOperation(account.uuid)
   const cached = await getCachedRecord(account.uuid)
 
@@ -301,7 +325,7 @@ export async function updateSkin(
 }
 
 export async function switchCape(mainWindow: BrowserWindow, capeId?: string): Promise<MinecraftProfileData> {
-  const account = await getValidAccount(mainWindow)
+  const account = await getSavedAccount()
   await waitForCurrentProfileOperation(account.uuid)
 
   const cached = await getCachedRecord(account.uuid)

@@ -218,7 +218,12 @@ function loaderLabel(loader: Loader): string {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  let message = error instanceof Error ? error.message : String(error)
+  message = message
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+    .trim()
+  return message || 'Something went wrong. Please try again.'
 }
 
 function cacheBustedImage(url: string, revision: number): string {
@@ -1720,22 +1725,30 @@ function CosmeticsView({ account, notify }: {
   const [loading, setLoading] = useState(true)
   const [action, setAction] = useState<string>()
   const [variant, setVariant] = useState<'classic' | 'slim'>('classic')
+  const [profileError, setProfileError] = useState<string>()
+  const loadSequence = useRef(0)
 
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (force = false, quiet = false) => {
+    const sequence = ++loadSequence.current
     setLoading(true)
     try {
       const next = await window.mega.account.profile(force) as ProfileData
+      if (sequence !== loadSequence.current) return
       setProfile(next)
+      setProfileError(undefined)
       const active = next.skins.find((skin) => skin.state === 'active')
       if (active) setVariant(active.variant)
     } catch (error) {
-      notify(errorMessage(error), 'error')
+      if (sequence !== loadSequence.current) return
+      const message = errorMessage(error)
+      setProfileError(message)
+      if (!quiet) notify(message, 'error')
     } finally {
-      setLoading(false)
+      if (sequence === loadSequence.current) setLoading(false)
     }
   }, [notify])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load(false, true) }, [load])
 
   const upload = async () => {
     if (action) return
@@ -1783,6 +1796,13 @@ function CosmeticsView({ account, notify }: {
   return (
     <div className="page cosmetics-page">
       <PageHeading eyebrow="Appearance" title="Skin & cape" description={`Preview and update ${account.name}'s Minecraft look.`} />
+      {profileError && !profile && (
+        <div className="notice cosmetics-service-notice">
+          <AlertTriangle />
+          <div><strong>Appearance is temporarily unavailable</strong><p>{profileError}</p></div>
+          <button className="secondary" disabled={loading} onClick={() => load(true)}>{loading ? 'Retrying…' : 'Retry'}</button>
+        </div>
+      )}
       <div className="profile-grid refined-profile-grid">
         <section className="panel skin-panel clean-skin-panel">
           <div className="panel-title"><span>3D preview</span><button title="Refresh profile" disabled={loading} onClick={() => load(true)}><RefreshCw className={loading ? 'spin' : ''} size={15} /></button></div>

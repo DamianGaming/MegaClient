@@ -3,9 +3,25 @@ import { MicrosoftAuth, type Account } from 'eml-lib'
 import type { PublicAccount } from '../types'
 import { store } from './store'
 
-function isLikelyTransientAuthError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return /network|fetch|timed? out|timeout|econn|enotfound|temporar|service unavailable|bad gateway|too many requests|\b429\b|\b50[234]\b/i.test(message)
+let refreshInFlight: Promise<Account> | null = null
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause = 'cause' in error ? (error as Error & { cause?: unknown }).cause : undefined
+    return `${error.name} ${error.message}${cause ? ` ${errorText(cause)}` : ''}`
+  }
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    return [record.name, record.message, record.code, record.status, record.statusCode]
+      .filter((value) => value !== undefined && value !== null)
+      .map(String)
+      .join(' ')
+  }
+  return String(error)
+}
+
+export function isLikelyTransientMicrosoftError(error: unknown): boolean {
+  return /network|fetch|timed? out|timeout|abort|econn|enotfound|eai_again|socket|temporar|service unavailable|could not be reached|unreachable|retry|bad gateway|gateway timeout|too many requests|offline|internet|\b408\b|\b425\b|\b429\b|\b50[234]\b/i.test(errorText(error))
 }
 
 function withTimeout<T>(operation: Promise<T>, milliseconds: number, message: string): Promise<T> {
@@ -28,33 +44,49 @@ export function publicAccount(account: Account | null): PublicAccount | null {
   }
 }
 
-export async function refreshAccount(mainWindow: BrowserWindow): Promise<Account> {
+export async function getSavedAccount(): Promise<Account> {
   const account = await store.loadAccount()
   if (!account) throw new Error('Sign in with Microsoft before using this feature.')
+  return account
+}
 
-  const auth = new MicrosoftAuth(mainWindow)
-  try {
-    const refreshed = await withTimeout(auth.refresh(account), 18_000, 'Microsoft account refresh timed out.')
-    await store.saveAccount(refreshed)
-    return refreshed
-  } catch (error) {
-    if (isLikelyTransientAuthError(error)) {
-      throw new Error('Microsoft services could not be reached. MegaClient kept your saved account and will try again shortly.')
+export async function refreshAccount(mainWindow: BrowserWindow): Promise<Account> {
+  if (refreshInFlight) return refreshInFlight
+
+  const task = (async () => {
+    const account = await getSavedAccount()
+    const auth = new MicrosoftAuth(mainWindow)
+    try {
+      const refreshed = await withTimeout(auth.refresh(account), 22_000, 'Microsoft account refresh timed out.')
+      await store.saveAccount(refreshed)
+      return refreshed
+    } catch (error) {
+      if (isLikelyTransientMicrosoftError(error)) {
+        throw new Error('Microsoft services could not be reached. MegaClient kept your saved account and will retry when it is needed.')
+      }
+      await store.clearAccount()
+      throw new Error('Your Microsoft session expired. Sign in again to continue.')
     }
-    await store.clearAccount()
-    throw new Error('Your Microsoft session expired. Sign in again to continue.')
+  })()
+
+  refreshInFlight = task
+  try {
+    return await task
+  } finally {
+    if (refreshInFlight === task) refreshInFlight = null
   }
 }
 
 export async function getValidAccount(mainWindow: BrowserWindow): Promise<Account> {
-  const account = await store.loadAccount()
-  if (!account) throw new Error('Sign in with Microsoft before using this feature.')
-
+  const account = await getSavedAccount()
   const auth = new MicrosoftAuth(mainWindow)
   try {
     if (await withTimeout(auth.validate(account), 12_000, 'Microsoft account validation timed out.')) return account
-  } catch {
-    // Refresh below when validation cannot complete with the stored token.
+  } catch (error) {
+    if (!isLikelyTransientMicrosoftError(error)) {
+      // A failed validation can also be caused by an expired access token. The
+      // refresh below is the authoritative check and handles both cases.
+    }
   }
 
   return refreshAccount(mainWindow)
@@ -67,16 +99,12 @@ export async function login(mainWindow: BrowserWindow): Promise<PublicAccount> {
   return publicAccount(account)!
 }
 
-export async function restore(mainWindow: BrowserWindow): Promise<PublicAccount | null> {
-  const stored = await store.loadAccount()
-  if (!stored) return null
-  try {
-    return publicAccount(await getValidAccount(mainWindow))
-  } catch (error) {
-    return isLikelyTransientAuthError(error) || (error instanceof Error && error.message.includes('kept your saved account'))
-      ? publicAccount(stored)
-      : null
-  }
+export async function restore(_mainWindow: BrowserWindow): Promise<PublicAccount | null> {
+  // Restoring the launcher should not depend on Microsoft being reachable.
+  // Minecraft/profile requests validate or refresh the token only when they
+  // actually need it, so startup remains reliable while offline or during a
+  // temporary Microsoft outage.
+  return publicAccount(await store.loadAccount())
 }
 
 export async function logout(): Promise<void> {

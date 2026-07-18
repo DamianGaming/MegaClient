@@ -1,13 +1,16 @@
 name: Build and release MegaClient
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
 
 permissions:
   contents: write
+
+concurrency:
+  group: megaclient-release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   windows:
@@ -18,11 +21,47 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
       - run: npm ci
       - run: npm run typecheck
       - run: npm run discord:verify
-      - name: Build and publish installer
+
+      - name: Build installer and updater files
         run: npm run release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create or update the GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:RELEASE_TAG
+          $repo = $env:REPOSITORY
+
+          & gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            & gh release create $tag --repo $repo --verify-tag --title "MegaClient $($tag.TrimStart('v'))" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw "Could not create release $tag." }
+          }
+
+          $assets = Get-ChildItem -Path release -File | Where-Object {
+            $_.Name -match '\.(exe|blockmap|yml)$'
+          }
+          if (-not $assets) { throw 'No installer or updater assets were produced.' }
+          if (-not ($assets.Name -contains 'latest.yml')) { throw 'latest.yml was not produced, so automatic updates would not work.' }
+
+          $assetPaths = @($assets | ForEach-Object { $_.FullName })
+          & gh release upload $tag @assetPaths --clobber --repo $repo
+          if ($LASTEXITCODE -ne 0) { throw "Could not upload assets to release $tag." }
+
+      - name: Keep a workflow copy of the release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: MegaClient-${{ github.ref_name }}
+          path: release/*
+          if-no-files-found: error

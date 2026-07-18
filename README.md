@@ -1,26 +1,28 @@
-# MegaClient Launcher 1.9.3
+# MegaClient Launcher 1.9.4
 
 MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, isolated instances, automatic Java handling, Modrinth content management, automatic launcher updates, Discord activity and the protected MegaClient profile.
 
 ## Included versions
 
-- Launcher: `1.9.3`
+- Launcher: `1.9.4`
 - Built-in MegaClient client: `0.12.4`
 - MegaClient Minecraft target: `26.2`
 - Required Fabric Loader: `0.19.3` or newer
 
-## What changed in 1.9.3
+## What changed in 1.9.4
 
-- Fixed skin uploads so opening the file picker immediately locks the action and cannot create duplicate upload dialogs.
-- Improved PNG validation and clearer errors for unreadable, empty, oversized or incorrectly sized skin files.
-- Skin uploads now retry once with a refreshed Microsoft session when Minecraft Services rejects an expired token.
-- Successful skin uploads no longer remove cached capes when Minecraft Services returns a partial profile response.
-- Improved handling for successful uploads that return no profile body by refreshing the profile with short bounded retries.
-- Fixed cape selection so a successful equip or hide action is reflected immediately even when the service returns no body or delayed profile data.
-- Cape updates preserve the complete owned skin and cape list instead of replacing it with incomplete response data.
-- Added owned-cape validation and prevented unnecessary requests when the selected cape is already equipped.
-- Added clearer live status text while choosing, uploading, equipping or hiding cosmetics.
-- Improved Minecraft Services error messages and added safe account refresh handling for expired access tokens.
+- Restoring a saved Microsoft account no longer depends on Microsoft services being reachable during launcher startup.
+- Skin and cape profile loading now uses the saved access token first and refreshes only when Minecraft Services returns an authentication rejection.
+- Concurrent token refresh requests are combined into one refresh operation to prevent duplicate Microsoft requests.
+- Cached skin and cape information remains available during temporary service, network or rate-limit problems.
+- Electron IPC error prefixes are removed from user-facing messages.
+- Automatic cosmetics loading no longer creates duplicate error notifications.
+- Failed profile loading now appears as one clean inline notice with a retry control.
+- The GitHub release workflow runs only from a pushed version tag.
+- Each version tag has one concurrency group, preventing overlapping release jobs.
+- Installer creation and GitHub release uploading are now separate steps.
+- Existing release assets are safely replaced during a workflow rerun instead of attempting to create the same release again.
+- The workflow verifies that `latest.yml` exists before publishing so automatic updates are not released without metadata.
 
 ## Development
 
@@ -45,6 +47,6 @@ Double-click:
 publish-megaclient-update.cmd
 ```
 
-Enter `1.9.3`. The publisher validates the protected client, Discord activity configuration, TypeScript and production build before creating and pushing the GitHub release tag.
+Enter `1.9.4`. Do not manually start a second release workflow. Pushing the version tag starts the one release job automatically.
 
 A packaged release still needs a final Windows installer test with a real Microsoft account before public distribution.
