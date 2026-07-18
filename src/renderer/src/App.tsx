@@ -55,7 +55,7 @@ interface BootStatus {
   detail?: string
 }
 
-const CLIENT_FALLBACK_VERSION = '0.11.11'
+const CLIENT_FALLBACK_VERSION = '0.12.1'
 const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
@@ -240,7 +240,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.0')
+  const [version, setVersion] = useState('1.9.1')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -1153,7 +1153,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         {custom && (
           <div className="client-note">
             <img src="./logo.png" alt="" />
-            <div><strong>MegaClient 0.11.11</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
+            <div><strong>MegaClient 0.12.1</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
         )}

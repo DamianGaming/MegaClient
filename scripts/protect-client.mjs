@@ -22,14 +22,14 @@ const archive = new AdmZip(jar)
 const entry = archive.getEntry('fabric.mod.json')
 if (!entry) throw new Error('The selected JAR is missing fabric.mod.json.')
 const metadata = JSON.parse(entry.getData().toString('utf8'))
-if (metadata.id !== 'megaclient' || metadata.version !== '0.11.11') {
-  throw new Error('The selected JAR must use mod ID megaclient and version 0.11.11 for this launcher build.')
+if (metadata.id !== 'megaclient' || metadata.version !== '0.12.1') {
+  throw new Error('The selected JAR must use mod ID megaclient and version 0.12.1 for this launcher build.')
 }
 if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.length) {
   throw new Error('The selected JAR has no valid Fabric client entrypoint.')
 }
 
-const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.11.11']
+const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.12.1']
 const key = createHash('sha256').update(parts.join('::'), 'utf8').digest()
 const nonce = randomBytes(12)
 const aad = Buffer.from('MegaClientPayload:v1', 'utf8')

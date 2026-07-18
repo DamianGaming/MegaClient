@@ -400,7 +400,7 @@ html[data-reduced-motion="true"] *{scroll-behavior:auto!important}.content{scrol
 @media(max-width:900px){.startup-steps{grid-template-columns:1fr 1fr}.activity-transfer{display:none}.activity-banner{grid-template-columns:auto minmax(0,1fr) auto}.version-summary{grid-template-columns:1fr}.startup-foot{align-items:flex-start;flex-direction:column}.startup-foot small{text-align:left}}
 html[data-reduced-motion="true"] .loading-row:after,html[data-reduced-motion="true"] .progress.indeterminate i,html[data-reduced-motion="true"] .status-dot.working:before{animation:none}
 
-/* MegaClient 1.9.0 refinements */
+/* MegaClient 1.9.1 refinements */
 .skin3d-controls{position:absolute;right:12px;top:12px;z-index:4;display:flex;align-items:center;gap:5px;padding:4px;border:1px solid #303543;border-radius:10px;background:rgba(13,15,21,.9);box-shadow:0 8px 22px rgba(0,0,0,.22)}
 .skin3d-controls button{height:27px;border:0;border-radius:7px;background:transparent;color:#aeb5c2;padding:0 9px;font-size:8px;font-weight:750;cursor:pointer}
 .skin3d-controls button:hover{background:#252936;color:#fff}
@@ -411,3 +411,16 @@ html[data-reduced-motion="true"] .loading-row:after,html[data-reduced-motion="tr
 .update-status-row>span small{font-size:8px;color:#747c8c}
 .update-status-row button:disabled{opacity:.55;cursor:wait}
 @media (max-width:1050px){.skin3d-controls{right:8px;top:8px}.skin3d-controls button{padding:0 7px}.skin3d-help{font-size:7px}}
+
+/* MegaClient 1.9.1 skin and cape preview refinements */
+.skin3d-root{contain:strict;isolation:isolate}
+.skin3d-root canvas{image-rendering:pixelated;outline:none}
+.skin3d-controls button.active{background:#29243a;color:#f4edff;box-shadow:inset 0 0 0 1px rgba(174,126,255,.28)}
+.skin3d-controls button:disabled{opacity:.38;cursor:not-allowed;background:transparent;color:#777d89}
+.skin3d-error{background:rgba(12,14,20,.88)}
+.skin3d-error small{color:#c5cad4;font-size:9px}
+.skin-variant-chip{left:12px!important;right:auto!important;top:48px!important}
+.cape-list>button{content-visibility:auto;contain-intrinsic-size:71px;contain:layout paint style}
+.cape-texture{position:relative!important;display:block!important}
+.cape-texture img{position:absolute;left:-10%;top:-6.25%;width:640%;height:200%;max-width:none;object-fit:fill}
+@media (max-width:1050px){.skin-variant-chip{left:8px!important;top:44px!important}}
