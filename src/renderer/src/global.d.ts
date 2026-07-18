@@ -16,7 +16,8 @@ declare global {
         installUpdate(): Promise<void>
         onBootStatus(callback: (event: { value: number; message: string; detail?: string }) => void): () => void
         onUpdate(callback: (event: any) => void): () => void
-        onSplashProgress(callback: (event: { value: number; message: string }) => void): () => void
+        onSplashProgress(callback: (event: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => void): () => void
+        onSplashLeaving(callback: () => void): () => void
       }
       account: {
         login(): Promise<any>

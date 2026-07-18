@@ -1,51 +1,43 @@
-# MegaClient 1.9.1 Build Report
+# MegaClient 1.9.3 Build Report
 
 ## Included versions
 
-- Launcher: `1.9.1`
-- Protected MegaClient client: `0.12.1`
+- Launcher: `1.9.3`
+- Protected MegaClient client: `0.12.4`
 - Minecraft target: `26.2`
 
-## Protected-client replacement
+## Skin upload fixes
 
-- Uploaded JAR metadata was read directly from `fabric.mod.json`.
-- Mod ID: `megaclient`
-- Version: `0.12.1`
-- Client entrypoint: `dev.velora.client.VeloraClient`
-- Java class version: `69` (Java 25)
-- Client SHA-256: `815ab181b27381180aa355d88d78fc5ea5809bf9aa569c104fe882f5866a879a`
-- Launch verifier dependency and runtime checks were updated to `0.12.1`.
-- Launch verifier SHA-256: `5f1e940055e47f895e851f187665c7bf0a1eba8f3a3ce2031e27bd08130910e7`
-- The encrypted bundle decrypts to the uploaded JAR and passes the launcher integrity check.
+- The skin chooser is marked busy before the Windows file dialog opens, preventing duplicate dialogs and overlapping uploads.
+- Selected files are checked for a valid PNG signature, readable content, a non-empty payload, the 2 MB service limit and supported 64×64 or legacy 64×32 dimensions.
+- Multipart upload data is rebuilt for every request so a token-refresh retry never reuses a consumed request body.
+- A rejected access token is refreshed once before the upload is reported as failed.
+- Complete and partial profile responses are merged with the existing cached profile rather than deleting omitted skins or capes.
+- Successful uploads that return an empty response use short bounded profile refresh attempts instead of leaving the preview stale.
+- File names are sanitised before being included in the multipart upload.
 
-## Cape and skin preview fixes
+## Cape equip fixes
 
-- Corrected Minecraft cape UV orientation.
-- Added a continuous curved cape surface with connected segments.
-- Added proper outer, inner, side, top and bottom cape faces.
-- Corrected slim-arm UV widths and offsets.
-- Added proportional high-resolution texture support.
-- Improved cape list thumbnails to display the visible 10×16 cape face.
-- Added clearer loading and unavailable-texture states.
+- Cape IDs are checked against the account's owned cape list before an equip request is sent.
+- Selecting the already active cape or hiding an already hidden cape no longer sends an unnecessary service request.
+- Successful cape actions update the local profile immediately when the service returns an empty or delayed response.
+- Partial cape responses preserve all owned skins and capes.
+- The renderer shows clear choosing, uploading, equipping and hiding states and avoids overlapping cosmetic actions.
 
-## Performance work
+## Account and profile reliability
 
-- Preview rendering pauses when hidden, off-screen or the document is not visible.
-- Pointer rotation and wheel zoom update the canvas without rerendering React on every input event.
-- Texture requests use a bounded shared cache.
-- Canvas backing resolution uses a pixel budget while remaining sharp on high-DPI displays.
-- Resize measurements are cached and redraws remain requestAnimationFrame-batched.
-- Preview and cape cards use stricter paint/layout containment.
+- Profile and cosmetic requests retry once after a safe Microsoft account refresh when an access token is rejected.
+- Existing saved-account behaviour is retained for temporary Microsoft service failures.
+- In-flight profile loads are allowed to finish before a cosmetic mutation begins, preventing stale profile data from overwriting a successful update.
+- Profile cache revisions are updated consistently after every successful mutation.
 
 ## Validation completed
 
-- Protected MegaClient `0.12.1` bundle verification: passed.
-- Launch verifier metadata and bytecode version references: passed.
-- Encrypted bundle byte-for-byte payload check: passed.
+- Protected MegaClient `0.12.4` bundle verification: passed.
 - TypeScript strict type check: passed.
 - Electron/Vite production build: passed.
-- Source and patch archive integrity checks: passed after packaging.
+- Packaged source and upgrade-patch archive integrity: passed after packaging.
 
 ## Environment limitation
 
-The Linux validation environment could not download the Electron runtime during the normal post-install step, so a final Windows NSIS installer and live Microsoft-authenticated Minecraft launch were not executed here. Dependencies were installed without lifecycle scripts for TypeScript and Electron/Vite production validation. Test the GitHub Actions installer on Windows before announcing the release.
+The service calls could not be completed with a real Microsoft-owned Minecraft account in this environment. The final GitHub Actions Windows installer should therefore be tested by uploading one valid skin, equipping a cape, hiding it and reopening the cosmetics page before public release.

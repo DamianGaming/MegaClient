@@ -30,10 +30,15 @@ const api = {
       ipcRenderer.on('updates:event', listener)
       return () => ipcRenderer.removeListener('updates:event', listener)
     },
-    onSplashProgress: (callback: (event: { value: number; message: string }) => void) => {
-      const listener = (_: unknown, payload: { value: number; message: string }) => callback(payload)
+    onSplashProgress: (callback: (event: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => void) => {
+      const listener = (_: unknown, payload: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => callback(payload)
       ipcRenderer.on('splash:progress', listener)
       return () => ipcRenderer.removeListener('splash:progress', listener)
+    },
+    onSplashLeaving: (callback: () => void) => {
+      const listener = () => callback()
+      ipcRenderer.on('splash:leaving', listener)
+      return () => ipcRenderer.removeListener('splash:leaving', listener)
     }
   },
   account: {

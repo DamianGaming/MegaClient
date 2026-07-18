@@ -28,6 +28,24 @@ export function publicAccount(account: Account | null): PublicAccount | null {
   }
 }
 
+export async function refreshAccount(mainWindow: BrowserWindow): Promise<Account> {
+  const account = await store.loadAccount()
+  if (!account) throw new Error('Sign in with Microsoft before using this feature.')
+
+  const auth = new MicrosoftAuth(mainWindow)
+  try {
+    const refreshed = await withTimeout(auth.refresh(account), 18_000, 'Microsoft account refresh timed out.')
+    await store.saveAccount(refreshed)
+    return refreshed
+  } catch (error) {
+    if (isLikelyTransientAuthError(error)) {
+      throw new Error('Microsoft services could not be reached. MegaClient kept your saved account and will try again shortly.')
+    }
+    await store.clearAccount()
+    throw new Error('Your Microsoft session expired. Sign in again to continue.')
+  }
+}
+
 export async function getValidAccount(mainWindow: BrowserWindow): Promise<Account> {
   const account = await store.loadAccount()
   if (!account) throw new Error('Sign in with Microsoft before using this feature.')
@@ -39,17 +57,7 @@ export async function getValidAccount(mainWindow: BrowserWindow): Promise<Accoun
     // Refresh below when validation cannot complete with the stored token.
   }
 
-  try {
-    const refreshed = await withTimeout(auth.refresh(account), 18_000, 'Microsoft account refresh timed out.')
-    await store.saveAccount(refreshed)
-    return refreshed
-  } catch (error) {
-    if (isLikelyTransientAuthError(error)) {
-      throw new Error('Microsoft services could not be reached. MegaClient kept your saved account and will try again when you launch.')
-    }
-    await store.clearAccount()
-    throw new Error('Your Microsoft session expired. Sign in again to continue.')
-  }
+  return refreshAccount(mainWindow)
 }
 
 export async function login(mainWindow: BrowserWindow): Promise<PublicAccount> {

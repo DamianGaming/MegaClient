@@ -9,9 +9,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const bundlePath = path.join(root, 'resources', 'client', 'megaclient.bundle')
 const verifierPath = path.join(root, 'resources', 'client', 'launch-verifier.jar')
 const servicePath = path.join(root, 'src', 'main', 'services', 'clientPayload.ts')
-const EXPECTED_VERIFIER_SHA256 = '5f1e940055e47f895e851f187665c7bf0a1eba8f3a3ce2031e27bd08130910e7'
+const EXPECTED_VERIFIER_SHA256 = '6474a312c6e1842503407b894b0f2357c10bf986e95f4a05c6c2375b17632c22'
 const EXPECTED_ID = 'megaclient'
-const EXPECTED_VERSION = '0.12.1'
+const EXPECTED_VERSION = '0.12.4'
 
 const service = await fs.readFile(servicePath, 'utf8')
 const expectedClient = service.match(/EXPECTED_CLIENT_JAR_SHA256\s*=\s*'([a-f0-9]{64})'/)?.[1]
@@ -26,7 +26,7 @@ if (verifierHash !== EXPECTED_VERIFIER_SHA256) {
   throw new Error(`Launch verifier integrity mismatch: ${verifierHash}`)
 }
 
-const keyParts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.12.1']
+const keyParts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.12.4']
 const key = createHash('sha256').update(keyParts.join('::'), 'utf8').digest()
 const nonce = bundle.subarray(4, 16)
 const encryptedWithTag = bundle.subarray(16)

@@ -55,7 +55,7 @@ interface BootStatus {
   detail?: string
 }
 
-const CLIENT_FALLBACK_VERSION = '0.12.1'
+const CLIENT_FALLBACK_VERSION = '0.12.4'
 const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
@@ -240,7 +240,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.1')
+  const [version, setVersion] = useState('1.9.3')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -620,22 +620,65 @@ function ConfirmDialog({ title, message, confirmLabel = 'Delete', onCancel, onCo
 }
 
 export function SplashWindow() {
-  const [progress, setProgress] = useState({ value: 8, message: 'Starting MegaClient' })
+  const [progress, setProgress] = useState({
+    value: 8,
+    message: 'Starting MegaClient',
+    detail: 'Preparing the secure launcher',
+    launcherVersion: '1.9.3',
+    clientVersion: CLIENT_FALLBACK_VERSION
+  })
+  const [visualProgress, setVisualProgress] = useState(8)
+  const [leaving, setLeaving] = useState(false)
+  const visualProgressRef = useRef(8)
 
   useEffect(() => window.mega.app.onSplashProgress((event) => {
-    setProgress({
-      value: Math.max(0, Math.min(100, Number(event?.value ?? 0))),
-      message: String(event?.message ?? 'Starting MegaClient')
-    })
+    setProgress((current) => ({
+      value: Math.max(0, Math.min(100, Number(event?.value ?? current.value))),
+      message: String(event?.message ?? current.message),
+      detail: String(event?.detail ?? current.detail),
+      launcherVersion: String(event?.launcherVersion ?? current.launcherVersion),
+      clientVersion: String(event?.clientVersion ?? current.clientVersion)
+    }))
   }), [])
 
+  useEffect(() => window.mega.app.onSplashLeaving(() => setLeaving(true)), [])
+
+  useEffect(() => {
+    const from = visualProgressRef.current
+    const to = progress.value
+    if (Math.abs(to - from) < 0.1) return
+    const startedAt = performance.now()
+    const duration = Math.max(180, Math.min(520, Math.abs(to - from) * 12))
+    let frame = 0
+    const animate = (now: number) => {
+      const amount = Math.min(1, (now - startedAt) / duration)
+      const eased = 1 - Math.pow(1 - amount, 3)
+      const next = from + (to - from) * eased
+      visualProgressRef.current = next
+      setVisualProgress(next)
+      if (amount < 1) frame = window.requestAnimationFrame(animate)
+    }
+    frame = window.requestAnimationFrame(animate)
+    return () => window.cancelAnimationFrame(frame)
+  }, [progress.value])
+
+  const roundedProgress = Math.round(visualProgress)
+
   return (
-    <div className="splash compact-splash separate-splash">
+    <div className={`splash compact-splash separate-splash ${leaving ? 'is-leaving' : ''}`}>
+      <div className="splash-ambient splash-ambient-one" />
+      <div className="splash-ambient splash-ambient-two" />
       <section className="splash-surface">
         <div className="splash-mark"><img src="./logo.png" alt="" /></div>
-        <div className="splash-copy"><strong>MegaClient</strong><span>{progress.message}</span></div>
-        <span className="splash-percent">{Math.round(progress.value)}%</span>
-        <div className="splash-progress" aria-label={`Loading ${Math.round(progress.value)}%`}><i style={{ width: `${progress.value}%` }} /></div>
+        <div className="splash-copy">
+          <small>SECURE LAUNCHER STARTUP</small>
+          <strong>MegaClient</strong>
+          <span>{progress.message}</span>
+          <p>{progress.detail}</p>
+        </div>
+        <span className="splash-percent">{roundedProgress}%</span>
+        <div className="splash-version">Launcher {progress.launcherVersion} <i /> Client {progress.clientVersion}</div>
+        <div className="splash-progress" aria-label={`Loading ${roundedProgress}%`}><i style={{ width: `${visualProgress}%` }} /></div>
       </section>
     </div>
   )
@@ -1153,7 +1196,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         {custom && (
           <div className="client-note">
             <img src="./logo.png" alt="" />
-            <div><strong>MegaClient 0.12.1</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
+            <div><strong>MegaClient 0.12.4</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
         )}
@@ -1695,25 +1738,40 @@ function CosmeticsView({ account, notify }: {
   useEffect(() => { void load() }, [load])
 
   const upload = async () => {
-    const file = await window.mega.account.chooseSkin()
-    if (!file) return
-    setAction('skin')
+    if (action) return
+    setAction('skin-picker')
     try {
+      const file = await window.mega.account.chooseSkin()
+      if (!file) return
+
+      setAction('skin-upload')
       const next = await window.mega.account.setSkin(file, variant) as ProfileData
       setProfile(next)
-      notify('Skin updated.', 'success')
-    } catch (error) { notify(errorMessage(error), 'error') }
-    finally { setAction(undefined) }
+      const active = next.skins.find((skin) => skin.state === 'active')
+      if (active) setVariant(active.variant)
+      notify('Skin uploaded and equipped.', 'success')
+    } catch (error) {
+      notify(errorMessage(error), 'error')
+    } finally {
+      setAction(undefined)
+    }
   }
 
   const cape = async (id?: string) => {
+    if (action) return
+    const currentlyActive = profile?.capes.find((capeItem) => capeItem.state === 'active')
+    if ((id && currentlyActive?.id === id) || (!id && !currentlyActive)) return
+
     setAction(id ?? 'hide')
     try {
       const next = await window.mega.account.setCape(id) as ProfileData
       setProfile(next)
-      notify(id ? 'Cape activated.' : 'Cape hidden.', 'success')
-    } catch (error) { notify(errorMessage(error), 'error') }
-    finally { setAction(undefined) }
+      notify(id ? 'Cape equipped.' : 'Cape hidden.', 'success')
+    } catch (error) {
+      notify(errorMessage(error), 'error')
+    } finally {
+      setAction(undefined)
+    }
   }
 
   const activeSkin = profile?.skins.find((skin) => skin.state === 'active')
@@ -1735,25 +1793,30 @@ function CosmeticsView({ account, notify }: {
           </div>
           <div className="skin-actions">
             <div className="segmented compact">
-              <button className={variant === 'classic' ? 'active' : ''} onClick={() => setVariant('classic')}>Classic</button>
-              <button className={variant === 'slim' ? 'active' : ''} onClick={() => setVariant('slim')}>Slim</button>
+              <button disabled={Boolean(action)} className={variant === 'classic' ? 'active' : ''} onClick={() => setVariant('classic')}>Classic</button>
+              <button disabled={Boolean(action)} className={variant === 'slim' ? 'active' : ''} onClick={() => setVariant('slim')}>Slim</button>
             </div>
-            <button className="primary" onClick={upload} disabled={Boolean(action) || loading}>{action === 'skin' ? <RefreshCw className="spin" /> : <Upload />} Upload skin</button>
+            <button className="primary" onClick={upload} disabled={Boolean(action) || loading}>
+              {action?.startsWith('skin-') ? <RefreshCw className="spin" /> : <Upload />}
+              {action === 'skin-picker' ? 'Choosing skin…' : action === 'skin-upload' ? 'Uploading…' : 'Upload skin'}
+            </button>
           </div>
+          {action?.startsWith('skin-') && <div className="cosmetic-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'skin-picker' ? 'Waiting for a PNG skin selection' : 'Uploading and applying your skin through Minecraft Services'}</span></div>}
         </section>
 
         <section className="panel cape-panel">
           <div className="panel-title"><span>Capes</span></div>
           <div className="cape-list">
             {profile?.capes.map((item) => (
-              <button key={item.id} className={item.state === 'active' ? 'active' : ''} onClick={() => cape(item.id)} disabled={Boolean(action)}>
+              <button key={item.id} className={item.state === 'active' ? 'active' : ''} onClick={() => cape(item.id)} disabled={Boolean(action)} aria-pressed={item.state === 'active'}>
                 <div className="cape-texture">{item.url ? <img src={cacheBustedImage(item.url, revision)} alt="" loading="lazy" decoding="async" /> : <Image />}</div>
-                <span><strong>{item.alias}</strong><small>{item.state === 'active' ? 'Shown on preview' : 'Select cape'}</small></span>
+                <span><strong>{item.alias}</strong><small>{item.state === 'active' ? 'Equipped' : 'Equip cape'}</small></span>
                 {action === item.id ? <RefreshCw className="spin" /> : item.state === 'active' ? <Check /> : <ChevronRight />}
               </button>
             ))}
           </div>
           {!loading && !profile?.capes.length && <div className="empty-compact"><Image /><h3>No capes found</h3><p>Your owned Java Edition capes will appear here.</p></div>}
+          {action && !action.startsWith('skin-') && <div className="cosmetic-action-status cape-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'hide' ? 'Hiding your active cape' : 'Equipping your selected cape'}</span></div>}
           {Boolean(profile?.capes.length) && <button className="secondary hide-cape" disabled={Boolean(action) || !activeCape} onClick={() => cape(undefined)}>{action === 'hide' ? <RefreshCw className="spin" /> : <X />} Hide cape</button>}
         </section>
       </div>
