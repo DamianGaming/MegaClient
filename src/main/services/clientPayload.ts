@@ -11,9 +11,9 @@ import { metadataDirectory, modsDirectory } from './paths'
 const execFileAsync = promisify(execFile)
 const MAGIC = Buffer.from('MCB1', 'ascii')
 const AAD = Buffer.from('MegaClientPayload:v1', 'utf8')
-export const EXPECTED_CLIENT_JAR_SHA256 = '9989fc03ffbfacd828d84f33383fc8060c503a0efdbb0382b3220070b104eea3'
-const EXPECTED_VERIFIER_SHA256 = '6474a312c6e1842503407b894b0f2357c10bf986e95f4a05c6c2375b17632c22'
-export const PROTECTED_CLIENT_VERSION = '0.12.4'
+export const EXPECTED_CLIENT_JAR_SHA256 = 'dae16c4990db9a5af83bc648855577210f17c15ee30bc55c3fe1c2d6ae83c154'
+export const EXPECTED_VERIFIER_SHA256 = 'f7107c353cca54c05bf4a316a22ff5f6027130384049eb5eede505c6b22249fa'
+export const PROTECTED_CLIENT_VERSION = '0.13.1'
 export const PROTECTED_MINECRAFT_VERSION = '26.2'
 export const MINIMUM_PROTECTED_CLIENT_LOADER = '0.19.3'
 const KEY_PARTS = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${PROTECTED_MINECRAFT_VERSION}::${PROTECTED_CLIENT_VERSION}`] as const
@@ -134,6 +134,21 @@ async function pruneStaleMarkerDirectories(base: string): Promise<void> {
         await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 }).catch(() => undefined)
       }
     }))
+}
+
+export async function cleanupStaleProtectedClientArtifacts(instanceSlugs: string[]): Promise<void> {
+  const uniqueSlugs = [...new Set(instanceSlugs.map((slug) => slug.trim()).filter(Boolean))]
+  let cursor = 0
+  const workerCount = Math.min(3, uniqueSlugs.length)
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < uniqueSlugs.length) {
+      const slug = uniqueSlugs[cursor++]!
+      await Promise.all([
+        pruneStaleRuntimeFiles(modsDirectory(slug)),
+        pruneStaleMarkerDirectories(path.join(metadataDirectory(slug), 'protected-runtime'))
+      ])
+    }
+  }))
 }
 
 async function bestEffortWipe(file: string): Promise<void> {

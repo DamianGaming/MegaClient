@@ -1,26 +1,43 @@
-# MegaClient 1.9.4 Build Report
+# MegaClient 1.9.5 Build Report
 
-## Completed validation
+## Protected client
 
-- Protected MegaClient 0.12.4 resource verification passed.
-- Protected client SHA-256 remained `9989fc03ffbfacd828d84f33383fc8060c503a0efdbb0382b3220070b104eea3`.
-- Launch verifier SHA-256 remained `6474a312c6e1842503407b894b0f2357c10bf986e95f4a05c6c2375b17632c22`.
+- Supplied JAR: `megaclient-0.13.1.jar`
+- Mod ID: `megaclient`
+- Version: `0.13.1`
+- Minecraft target: `~26.2`
+- Fabric Loader requirement: `>=0.19.3`
+- Java requirement: `>=25`
+- Fabric API requirement: `>=0.152.2+26.2`
+- Client SHA-256: `dae16c4990db9a5af83bc648855577210f17c15ee30bc55c3fe1c2d6ae83c154`
+- Launch verifier SHA-256: `f7107c353cca54c05bf4a316a22ff5f6027130384049eb5eede505c6b22249fa`
+- The encrypted bundle was decrypted during validation and matched the supplied JAR byte-for-byte.
+- Launch-verifier metadata and its embedded required MegaClient version were updated to `0.13.1`.
+
+## Launcher validation
+
+- `npm run client:protect` completed successfully using the supplied JAR.
+- `npm run client:verify` passed.
 - Strict TypeScript checking passed.
 - Electron/Vite main-process build passed.
 - Electron/Vite preload build passed.
 - Electron/Vite renderer build passed.
-- GitHub Actions workflow YAML was parsed successfully.
-- Release workflow now has one tag-only trigger and per-tag concurrency.
-- Release upload logic is idempotent and replaces matching assets on reruns.
+- The protected client, updater, cache, network, settings-write, cleanup and renderer changes compiled together successfully.
 
-## Account and profile changes
+## Improvements included
 
-- Saved accounts are restored locally without a startup Microsoft validation request.
-- Profile reads use the saved access token and refresh only after HTTP 401.
-- Token refresh operations are single-flight.
-- Transient network and service failures can use profile cache data for up to seven days.
-- Automatic cosmetics loading reports one inline error rather than duplicate IPC and toast messages.
+- More informative launcher-update transfer progress.
+- Automatic update retry after the network reconnects.
+- Cleaner updater failure messages.
+- Header-aware coalescing of identical in-flight JSON requests.
+- Bounded Modrinth metadata caches.
+- Background cleanup of abandoned protected runtime files.
+- More reliable atomic settings writes on Windows.
+- Lighter rendering for long launcher lists.
+- Correct current-version fallbacks throughout the interface.
 
-## Packaging limitation
+## Remaining Windows validation
 
-The production Electron/Vite application build completed. A full Windows NSIS package was attempted but this environment could not download Electron packaging files from GitHub because outbound DNS access returned `EAI_AGAIN`. The GitHub Actions Windows build must therefore perform the final NSIS and updater-metadata validation.
+A normal `npm ci` reached the Electron post-install step, but this environment could not download the Electron binary because outbound fetching failed. Dependencies were installed with lifecycle scripts disabled so the TypeScript and Electron/Vite production builds could still be validated.
+
+The GitHub Actions Windows job must therefore perform the final NSIS installer build, updater-metadata check and live Microsoft-authenticated Minecraft launch test before public release.

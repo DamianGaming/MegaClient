@@ -7,6 +7,9 @@ export interface LauncherUpdateState {
   state: 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'current' | 'offline' | 'error' | 'development'
   version?: string
   percent?: number
+  transferred?: number
+  total?: number
+  bytesPerSecond?: number
   message?: string
   checkedAt?: string
   nextCheckAt?: string
@@ -27,6 +30,17 @@ let nextCheckAt = 0
 let lastProgressSentAt = 0
 let state: LauncherUpdateState = { state: app.isPackaged ? 'idle' : 'development', automatic: true }
 let listenersInstalled = false
+
+function friendlyUpdateError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  if (/ENOTFOUND|EAI_AGAIN|ERR_INTERNET_DISCONNECTED|network|offline|timed?\s*out/i.test(raw)) {
+    return 'MegaClient could not reach the update service. It will try again automatically.'
+  }
+  if (/404|latest\.yml|no published versions/i.test(raw)) {
+    return 'No compatible published update information is available yet.'
+  }
+  return 'The update scan could not finish. MegaClient will retry automatically.'
+}
 
 function publish(patch: Partial<LauncherUpdateState> & Pick<LauncherUpdateState, 'state'>): LauncherUpdateState {
   state = {
@@ -76,22 +90,29 @@ function installListeners(): void {
   })
   autoUpdater.on('update-not-available', () => {
     lastCheckAt = Date.now()
-    publish({ state: 'current', checkedAt: new Date(lastCheckAt).toISOString() })
+    publish({ state: 'current', percent: undefined, transferred: undefined, total: undefined, bytesPerSecond: undefined, checkedAt: new Date(lastCheckAt).toISOString() })
     schedule(CHECK_INTERVAL)
   })
   autoUpdater.on('download-progress', (progress) => {
     const now = Date.now()
     if (now - lastProgressSentAt < 300 && progress.percent < 100) return
     lastProgressSentAt = now
-    publish({ state: 'downloading', percent: progress.percent })
+    publish({
+      state: 'downloading',
+      percent: Math.max(0, Math.min(100, progress.percent)),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond
+    })
   })
   autoUpdater.on('update-downloaded', (info) => {
     updateReady = true
     clearSchedule()
-    publish({ state: 'ready', version: info.version, percent: 100, checkedAt: new Date().toISOString() })
+    publish({ state: 'ready', version: info.version, percent: 100, transferred: state.total, checkedAt: new Date().toISOString() })
   })
   autoUpdater.on('error', (error) => {
-    publish({ state: 'error', message: error.message, checkedAt: new Date().toISOString() })
+    console.warn('[MegaClient] Automatic update error:', error)
+    publish({ state: 'error', message: friendlyUpdateError(error), checkedAt: new Date().toISOString() })
     schedule(RETRY_INTERVAL)
   })
 
@@ -136,8 +157,8 @@ export async function checkForUpdates(reason: 'manual' | 'startup' | 'scheduled'
   publish({ state: 'checking', checkedAt: new Date(now).toISOString() })
   checkInFlight = autoUpdater.checkForUpdates()
     .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      publish({ state: 'error', message, checkedAt: new Date().toISOString() })
+      console.warn('[MegaClient] Update check failed:', error)
+      publish({ state: 'error', message: friendlyUpdateError(error), checkedAt: new Date().toISOString() })
       schedule(RETRY_INTERVAL)
       return state
     })

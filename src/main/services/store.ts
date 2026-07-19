@@ -35,7 +35,16 @@ async function atomicWrite(file: string, data: unknown): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`
   await fs.writeFile(temp, JSON.stringify(data, null, 2), 'utf8')
-  await fs.rename(temp, file)
+  try {
+    await fs.rename(temp, file)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (process.platform !== 'win32' || (code !== 'EEXIST' && code !== 'EPERM')) throw error
+    await fs.rm(file, { force: true })
+    await fs.rename(temp, file)
+  } finally {
+    await fs.rm(temp, { force: true }).catch(() => undefined)
+  }
 }
 
 function normaliseSettings(input: unknown): LauncherSettings {

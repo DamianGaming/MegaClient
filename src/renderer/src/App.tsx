@@ -55,7 +55,7 @@ interface BootStatus {
   detail?: string
 }
 
-const CLIENT_FALLBACK_VERSION = '0.12.4'
+const CLIENT_FALLBACK_VERSION = '0.13.1'
 const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
@@ -209,6 +209,16 @@ function formatBytes(value = 0): string {
   return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`
 }
 
+function updateTransferLabel(update: any): string {
+  const transferred = Number(update?.transferred ?? 0)
+  const total = Number(update?.total ?? 0)
+  const speed = Number(update?.bytesPerSecond ?? 0)
+  const parts: string[] = []
+  if (transferred > 0 && total > 0) parts.push(`${formatBytes(transferred)} of ${formatBytes(total)}`)
+  if (speed > 0) parts.push(`${formatBytes(speed)}/s`)
+  return parts.join(' · ')
+}
+
 function formatDownloads(value: number): string {
   return new Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
@@ -245,7 +255,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.3')
+  const [version, setVersion] = useState('1.9.5')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -358,6 +368,11 @@ function App() {
     void bootstrap()
   }), [bootstrap])
   useEffect(() => window.mega.app.onUpdate(setUpdate), [])
+  useEffect(() => {
+    const retryUpdatesWhenOnline = () => void window.mega.app.checkUpdates()
+    window.addEventListener('online', retryUpdatesWhenOnline)
+    return () => window.removeEventListener('online', retryUpdatesWhenOnline)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.reducedMotion = settings?.reducedMotion ? 'true' : 'false'
@@ -440,7 +455,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : 'Ready'} />
+      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
           <img src="./logo.png" alt="MegaClient" />
@@ -487,7 +502,7 @@ function App() {
         {update?.state === 'downloading' && (
           <div className="update-banner quiet">
             <RefreshCw className="spin" size={16} />
-            <span>Downloading launcher update · {Math.round(update.percent ?? 0)}%</span>
+            <span>Downloading launcher update · {Math.round(update.percent ?? 0)}%{updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}</span>
             <div className="banner-progress"><i style={{ width: `${Math.max(2, update.percent ?? 0)}%` }} /></div>
           </div>
         )}
@@ -629,7 +644,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.9.3',
+    launcherVersion: '1.9.5',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -1201,7 +1216,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         {custom && (
           <div className="client-note">
             <img src="./logo.png" alt="" />
-            <div><strong>MegaClient 0.12.4</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
+            <div><strong>MegaClient {CLIENT_FALLBACK_VERSION}</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
         )}
@@ -1908,7 +1923,7 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
           <SettingToggle title="Show snapshots" description="Include Minecraft snapshots in the instance version list." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
           <div className="update-row update-status-row">
             <span>
-              <strong>{update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? 'The last update scan could not finish' : 'Automatic update scanning is ready'}</strong>
+              <strong>{update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%${updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? (update.message ?? 'The last update scan could not finish') : 'Automatic update scanning is ready'}</strong>
               <small>{update?.checkedAt
                 ? `Last scan ${new Date(update.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${update?.nextCheckAt && draft.checkUpdates ? ` · Next ${new Date(update.nextCheckAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
                 : draft.checkUpdates ? 'The first scan starts shortly after launch.' : 'Automatic scans are currently disabled.'}</small>

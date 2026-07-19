@@ -555,3 +555,7 @@ html[data-reduced-motion="true"] .app-shell{animation:none}
 .cape-action-status{margin:10px 0 0}
 .skin-actions .segmented button:disabled{cursor:not-allowed;opacity:.55}
 .cape-list>button[aria-pressed="true"]{cursor:default}
+
+
+/* MegaClient 1.9.5 — lighter rendering for long content lists */
+.mod-row,.content-card,.world-card,.server-card,.cape-list>button{content-visibility:auto;contain-intrinsic-size:auto 72px}

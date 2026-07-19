@@ -91,6 +91,18 @@ const projectCache = new Map<string, { value: ModrinthProject; expires: number }
 const versionsCache = new Map<string, { value: ModrinthVersion[]; expires: number }>()
 const installLocks = new Map<string, Promise<unknown>>()
 
+function pruneTimedCache<T>(cache: Map<string, { value: T; expires: number }>, maximum: number): void {
+  const now = Date.now()
+  for (const [key, entry] of cache) {
+    if (entry.expires <= now) cache.delete(key)
+  }
+  while (cache.size > maximum) {
+    const oldest = cache.keys().next().value
+    if (!oldest) break
+    cache.delete(oldest)
+  }
+}
+
 function stateFile(instance: LauncherInstance): string {
   return path.join(metadataDirectory(instance.slug), 'mods.json')
 }
@@ -166,6 +178,7 @@ async function project(projectId: string): Promise<ModrinthProject> {
   if (cached && cached.expires > Date.now()) return cached.value
   const value = await fetchJson<ModrinthProject>(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}`)
   projectCache.set(projectId, { value, expires: Date.now() + 10 * 60_000 })
+  pruneTimedCache(projectCache, 180)
   return value
 }
 
@@ -191,6 +204,7 @@ async function versionsFor(projectId: string, instance: LauncherInstance, type: 
   }
   const value = sortVersions(await fetchJson<ModrinthVersion[]>(url.toString()))
   versionsCache.set(cacheKey, { value, expires: Date.now() + 5 * 60_000 })
+  pruneTimedCache(versionsCache, 260)
   return value
 }
 

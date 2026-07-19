@@ -15,6 +15,7 @@ import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
 import { getPartnerServerStatus } from './services/servers'
 import { checkForUpdates, configureAutomaticUpdates, installReadyUpdate, notifyWindowFocused, setupUpdater, updaterState } from './services/updater'
 import { configureDiscordActivity, isDiscordActivityConfigured, showLauncherActivity, shutdownDiscordActivity } from './services/discordActivity'
+import { cleanupStaleProtectedClientArtifacts } from './services/clientPayload'
 
 const execFileAsync = promisify(execFile)
 
@@ -529,6 +530,8 @@ async function startApplication(): Promise<void> {
   await Promise.race([splashReadyPromise, delay(900)])
 
   const data = store.getData()
+  void cleanupStaleProtectedClientArtifacts(data.instances.map((instance) => instance.slug))
+    .catch((error) => console.warn('[MegaClient] Stale protected runtime cleanup could not finish.', error))
   setSplashProgress(34, 'Preparing the interface', 'Starting your library, updates and account services')
   registerIpc()
   createMainWindow()

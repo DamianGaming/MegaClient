@@ -18,18 +18,24 @@ if (path.extname(jarPath).toLowerCase() !== '.jar' || jar.length < 1024) {
   throw new Error('The selected client payload must be a valid non-empty .jar file.')
 }
 
+const servicePath = path.join(projectRoot, 'src', 'main', 'services', 'clientPayload.ts')
+let service = await fs.readFile(servicePath, 'utf8')
+const expectedVersion = service.match(/PROTECTED_CLIENT_VERSION\s*=\s*'([^']+)'/)?.[1]
+const expectedMinecraft = service.match(/PROTECTED_MINECRAFT_VERSION\s*=\s*'([^']+)'/)?.[1]
+if (!expectedVersion || !expectedMinecraft) throw new Error('Could not read protected client version constants from clientPayload.ts.')
+
 const archive = new AdmZip(jar)
 const entry = archive.getEntry('fabric.mod.json')
 if (!entry) throw new Error('The selected JAR is missing fabric.mod.json.')
 const metadata = JSON.parse(entry.getData().toString('utf8'))
-if (metadata.id !== 'megaclient' || metadata.version !== '0.12.4') {
-  throw new Error('The selected JAR must use mod ID megaclient and version 0.12.4 for this launcher build.')
+if (metadata.id !== 'megaclient' || metadata.version !== expectedVersion) {
+  throw new Error(`The selected JAR must use mod ID megaclient and version ${expectedVersion} for this launcher build.`)
 }
 if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.length) {
   throw new Error('The selected JAR has no valid Fabric client entrypoint.')
 }
 
-const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', '26.2::0.12.4']
+const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${expectedMinecraft}::${expectedVersion}`]
 const key = createHash('sha256').update(parts.join('::'), 'utf8').digest()
 const nonce = randomBytes(12)
 const aad = Buffer.from('MegaClientPayload:v1', 'utf8')
@@ -44,8 +50,6 @@ const bundlePath = path.join(projectRoot, 'resources', 'client', 'megaclient.bun
 await fs.mkdir(path.dirname(bundlePath), { recursive: true })
 await fs.writeFile(bundlePath, bundle)
 
-const servicePath = path.join(projectRoot, 'src', 'main', 'services', 'clientPayload.ts')
-let service = await fs.readFile(servicePath, 'utf8')
 const pattern = /export const EXPECTED_CLIENT_JAR_SHA256 = '[a-f0-9]{64}'/
 if (!pattern.test(service)) throw new Error('Could not update EXPECTED_CLIENT_JAR_SHA256 in clientPayload.ts.')
 service = service.replace(pattern, `export const EXPECTED_CLIENT_JAR_SHA256 = '${hash}'`)

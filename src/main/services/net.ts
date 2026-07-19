@@ -2,7 +2,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 
-const USER_AGENT = 'MegaClient/1.8.1 (MegaStudios Minecraft Launcher)'
+const USER_AGENT = 'MegaClient/1.9.5 (MegaStudios Minecraft Launcher)'
+const jsonRequests = new Map<string, Promise<unknown>>()
 
 export async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
   const controller = new AbortController()
@@ -28,7 +29,21 @@ export async function fetchWithTimeout(url: string, init: RequestInit = {}, time
 }
 
 export async function fetchJson<T>(url: string, init: RequestInit = {}): Promise<T> {
-  return (await fetchWithTimeout(url, init)).json() as Promise<T>
+  const method = String(init.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' || init.body) return (await fetchWithTimeout(url, init)).json() as Promise<T>
+
+  const headers = [...new Headers(init.headers).entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}:${value}`)
+    .join('|')
+  const key = `${method}:${url}:${headers}`
+  const existing = jsonRequests.get(key)
+  if (existing) return existing as Promise<T>
+  const request = fetchWithTimeout(url, init)
+    .then((response) => response.json() as Promise<T>)
+    .finally(() => jsonRequests.delete(key))
+  jsonRequests.set(key, request)
+  return request
 }
 
 export async function downloadFile(
