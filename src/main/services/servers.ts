@@ -17,6 +17,9 @@ export interface PartnerServerStatus {
 }
 
 const statusCache = new Map<string, { value: PartnerServerStatus; expiresAt: number }>()
+const targetCache = new Map<string, { value: { displayHost: string; host: string; port: number }; expiresAt: number }>()
+const statusRequests = new Map<string, Promise<PartnerServerStatus>>()
+let gameplayActive = false
 
 function readVarInt(buffer: Buffer, offset = 0): { value: number; bytes: number } | null {
   let value = 0
@@ -88,16 +91,32 @@ function parseAddress(address: string): { host: string; port?: number } {
 }
 
 async function resolveTarget(address: string): Promise<{ displayHost: string; host: string; port: number }> {
+  const key = address.trim().toLowerCase()
+  const cached = targetCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
   const parsed = parseAddress(address)
-  if (parsed.port) return { displayHost: parsed.host, host: parsed.host, port: parsed.port }
-  try {
-    const records = await dns.resolveSrv(`_minecraft._tcp.${parsed.host}`)
-    const record = records.sort((a, b) => a.priority - b.priority || b.weight - a.weight)[0]
-    if (record) return { displayHost: parsed.host, host: record.name.replace(/\.$/, ''), port: record.port }
-  } catch {
-    // Most servers use the default port and do not publish an SRV record.
+  let value: { displayHost: string; host: string; port: number }
+  if (parsed.port) {
+    value = { displayHost: parsed.host, host: parsed.host, port: parsed.port }
+  } else {
+    try {
+      const records = await dns.resolveSrv(`_minecraft._tcp.${parsed.host}`)
+      const record = records.sort((a, b) => a.priority - b.priority || b.weight - a.weight)[0]
+      value = record
+        ? { displayHost: parsed.host, host: record.name.replace(/\.$/, ''), port: record.port }
+        : { displayHost: parsed.host, host: parsed.host, port: 25565 }
+    } catch {
+      value = { displayHost: parsed.host, host: parsed.host, port: 25565 }
+    }
   }
-  return { displayHost: parsed.host, host: parsed.host, port: 25565 }
+  targetCache.set(key, { value, expiresAt: Date.now() + 10 * 60_000 })
+  if (targetCache.size > 80) {
+    for (const [cacheKey, entry] of targetCache) {
+      if (entry.expiresAt <= Date.now() || targetCache.size > 60) targetCache.delete(cacheKey)
+    }
+  }
+  return value
 }
 
 async function queryStatus(address: string): Promise<PartnerServerStatus> {
@@ -111,10 +130,13 @@ async function queryStatus(address: string): Promise<PartnerServerStatus> {
     const finish = (error?: Error, value?: unknown): void => {
       if (finished) return
       finished = true
+      socket.removeAllListeners()
       socket.destroy()
       error ? reject(error) : resolve(value)
     }
-    socket.setTimeout(5500, () => finish(new Error('The server did not respond in time.')))
+    socket.setNoDelay(true)
+    socket.setKeepAlive(false)
+    socket.setTimeout(4_500, () => finish(new Error('The server did not respond in time.')))
     socket.once('error', (error) => finish(error))
     socket.once('connect', () => {
       const handshakePayload = Buffer.concat([
@@ -177,24 +199,50 @@ async function queryStatus(address: string): Promise<PartnerServerStatus> {
   }
 }
 
+export function setServerStatusPaused(active: boolean): void {
+  gameplayActive = active
+}
+
 export async function getPartnerServerStatus(address: string, force = false): Promise<PartnerServerStatus> {
   const key = address.trim().toLowerCase()
   const cached = statusCache.get(key)
-  if (!force && cached && cached.expiresAt > Date.now()) return cached.value
-  try {
-    const value = await queryStatus(address)
-    statusCache.set(key, { value, expiresAt: Date.now() + 30_000 })
-    return value
-  } catch (error) {
-    const value: PartnerServerStatus = {
+  if (gameplayActive) {
+    if (cached) return cached.value
+    const parsed = parseAddress(address)
+    return {
       online: false,
       address,
-      host: parseAddress(address).host,
-      port: parseAddress(address).port ?? 25565,
+      host: parsed.host,
+      port: parsed.port ?? 25565,
       checkedAt: new Date().toISOString(),
-      error: error instanceof Error ? error.message : String(error)
+      error: 'Live server polling is paused while Minecraft is running.'
     }
-    statusCache.set(key, { value, expiresAt: Date.now() + 12_000 })
-    return value
   }
+  if (!force && cached && cached.expiresAt > Date.now()) return cached.value
+
+  const existing = statusRequests.get(key)
+  if (existing) return existing
+
+  const request = (async () => {
+    try {
+      const value = await queryStatus(address)
+      statusCache.set(key, { value, expiresAt: Date.now() + 45_000 })
+      return value
+    } catch (error) {
+      const parsed = parseAddress(address)
+      const value: PartnerServerStatus = {
+        online: false,
+        address,
+        host: parsed.host,
+        port: parsed.port ?? 25565,
+        checkedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error)
+      }
+      statusCache.set(key, { value, expiresAt: Date.now() + 15_000 })
+      return value
+    }
+  })().finally(() => statusRequests.delete(key))
+
+  statusRequests.set(key, request)
+  return request
 }

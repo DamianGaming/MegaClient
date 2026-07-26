@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu, Tray, app, nativeImage } from 'electron'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
 import semver from 'semver'
 import { Launcher, type Account } from 'eml-lib'
 import type { LaunchProgress, LauncherInstance } from '../types'
@@ -17,8 +18,10 @@ import { getInstance, updateInstance } from './instances'
 import { instanceDirectory, modsDirectory } from './paths'
 import { store } from './store'
 import { getLoaderVersions } from './versions'
-import { installMod, setModEnabled } from './modrinth'
+import { ensureRequiredMod } from './modrinth'
 import { showLauncherActivity, showLaunchingActivity, showPlayingActivity } from './discordActivity'
+import { setGameplayUpdatePause } from './updater'
+import { setServerStatusPaused } from './servers'
 import {
   findGameJavaProcesses,
   runPreflightSecurity,
@@ -45,6 +48,9 @@ let securityCheckRunning = false
 let consoleLines: Array<{ line: string; kind: 'info' | 'error' | 'game' | 'muted' | 'success' }> = []
 let consolePending: Array<{ line: string; kind: 'info' | 'error' | 'game' | 'muted' | 'success' }> = []
 let consoleFlushTimer: NodeJS.Timeout | null = null
+let gamePerformanceActive = false
+let securityMonitorGeneration = 0
+let clientVerificationGeneration = 0
 
 function appIconPath(): string {
   return app.isPackaged
@@ -90,27 +96,32 @@ function consoleHtml(iconDataUrl: string): string {
 
 function flushConsole(): void {
   consoleFlushTimer = null
-  if (!consoleWindow || consoleWindow.isDestroyed()) {
+  if (!consoleWindow || consoleWindow.isDestroyed() || !consoleWindow.isVisible() || consoleWindow.isMinimized()) {
     consolePending = []
     return
   }
   if (!consolePending.length) return
   const batch = consolePending.splice(0, consolePending.length)
-  const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); log.scrollTop=log.scrollHeight; })()`
+  const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); while(log.childElementCount>900)log.firstElementChild?.remove(); log.scrollTop=log.scrollHeight; })()`
   void consoleWindow.webContents.executeJavaScript(script).catch(() => undefined)
 }
 
 function queueConsole(entries: typeof consolePending): void {
-  // Keep the bounded history, but do not build a second unbounded live queue
-  // while the optional console window is closed. Reopening replays consoleLines.
-  if (!consoleWindow || consoleWindow.isDestroyed()) return
+  // Fabric can emit thousands of log lines. Keep history bounded and avoid DOM
+  // work while the console is hidden or minimised so it cannot compete with the
+  // game for CPU/GPU time.
+  if (!consoleWindow || consoleWindow.isDestroyed() || !consoleWindow.isVisible() || consoleWindow.isMinimized()) return
   consolePending.push(...entries)
-  if (consolePending.length > 900) consolePending = consolePending.slice(-700)
-  if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, 80)
+  if (consolePending.length > 400) consolePending = consolePending.slice(-300)
+  if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, gamePerformanceActive ? 500 : 140)
 }
 
 function replayConsole(): void {
-  queueConsole(consoleLines)
+  if (!consoleWindow || consoleWindow.isDestroyed()) return
+  consolePending = []
+  void consoleWindow.webContents.executeJavaScript("document.getElementById('log')?.replaceChildren()").then(() => {
+    queueConsole(consoleLines.slice(-900))
+  }).catch(() => undefined)
 }
 
 function showConsole(): BrowserWindow {
@@ -142,10 +153,9 @@ function showConsole(): BrowserWindow {
     }
   })
   void consoleWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(consoleHtml(iconImage.toDataURL()))}`)
-  consoleWindow.once('ready-to-show', () => {
-    consoleWindow?.show()
-    replayConsole()
-  })
+  consoleWindow.once('ready-to-show', () => consoleWindow?.show())
+  consoleWindow.on('show', replayConsole)
+  consoleWindow.on('restore', replayConsole)
   consoleWindow.on('closed', () => {
     consoleWindow = null
     consolePending = []
@@ -158,7 +168,7 @@ function showConsole(): BrowserWindow {
 function appendConsole(line: string, kind: 'info' | 'error' | 'game' | 'muted' | 'success' = 'info'): void {
   const entry = { line, kind }
   consoleLines.push(entry)
-  if (consoleLines.length > 3000) consoleLines = consoleLines.slice(-2400)
+  if (consoleLines.length > 1400) consoleLines = consoleLines.slice(-1000)
   queueConsole([entry])
 }
 
@@ -169,29 +179,35 @@ function setConsoleState(state: string): void {
 
 async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstance> {
   if (instance.loader === 'vanilla') return instance
-  const versions = await getLoaderVersions(instance.loader, instance.minecraftVersion)
-  if (!versions.length) throw new Error(`${instance.loader} does not support Minecraft ${instance.minecraftVersion}.`)
+
+  // A configured loader is already enough for normal instances. Re-querying
+  // Fabric/Forge/NeoForge before every launch adds avoidable network latency and
+  // makes offline starts less reliable.
+  if (!instance.customClient && instance.loaderVersion) return instance
 
   if (instance.customClient) {
-    const isSupported = (version?: string): boolean => {
-      if (!version || !versions.includes(version)) return false
-      const parsed = semver.valid(version) ?? semver.coerce(version)?.version
-      return parsed ? semver.gte(parsed, MINIMUM_CLIENT_LOADER) : false
-    }
+    const parsed = instance.loaderVersion
+      ? semver.valid(instance.loaderVersion) ?? semver.coerce(instance.loaderVersion)?.version
+      : null
+    if (instance.loader === 'fabric' && parsed && semver.gte(parsed, MINIMUM_CLIENT_LOADER)) return instance
 
-    // Keep an already compatible loader instead of silently moving every
-    // launch to the newest build. This avoids needless loader churn for large
-    // native/performance mods while still repairing missing or obsolete setups.
-    if (instance.loader === 'fabric' && isSupported(instance.loaderVersion)) return instance
-
-    const compatible = versions.find((version) => isSupported(version))
+    const versions = await getLoaderVersions('fabric', CLIENT_MINECRAFT_VERSION)
+    const compatible = versions.find((version) => {
+      const value = semver.valid(version) ?? semver.coerce(version)?.version
+      return value ? semver.gte(value, MINIMUM_CLIENT_LOADER) : false
+    })
     if (!compatible) {
       throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
     }
-    return updateInstance(instance.id, { loader: 'fabric', loaderVersion: compatible, minecraftVersion: CLIENT_MINECRAFT_VERSION })
+    return updateInstance(instance.id, {
+      loader: 'fabric',
+      loaderVersion: compatible,
+      minecraftVersion: CLIENT_MINECRAFT_VERSION
+    })
   }
 
-  if (instance.loaderVersion && versions.includes(instance.loaderVersion)) return instance
+  const versions = await getLoaderVersions(instance.loader, instance.minecraftVersion)
+  if (!versions.length) throw new Error(`${instance.loader} does not support Minecraft ${instance.minecraftVersion}.`)
   return updateInstance(instance.id, { loaderVersion: versions[0] })
 }
 
@@ -210,12 +226,9 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
   emit(mainWindow, 'launch:progress', { phase: 'client', message: 'Installing required client files' } satisfies LaunchProgress)
   appendConsole('[MegaClient] Resolving required Fabric dependencies', 'muted')
   try {
-    const fabricApi = await installMod(instance.id, 'P7dR8mSH', (message, progress) => {
+    const fabricApi = await ensureRequiredMod(instance.id, 'P7dR8mSH', (message, progress) => {
       emit(mainWindow, 'launch:progress', { phase: 'client', message, progress } satisfies LaunchProgress)
     })
-    if (!fabricApi.enabled) {
-      await setModEnabled(instance.id, fabricApi.fileName, true)
-    }
     appendConsole(`[MegaClient] Fabric API ${fabricApi.versionNumber ?? 'compatible build'} is ready`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -237,49 +250,124 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
 }
 
 function stopSecurityMonitor(): void {
-  if (securityTimer) clearInterval(securityTimer)
+  securityMonitorGeneration++
+  if (securityTimer) clearTimeout(securityTimer)
   securityTimer = null
   securityCheckRunning = false
 }
 
 function stopClientVerification(): void {
+  clientVerificationGeneration++
   if (clientVerificationTimer) clearTimeout(clientVerificationTimer)
   clientVerificationTimer = null
 }
 
+function processIsAlive(processId: number): boolean {
+  try {
+    process.kill(processId, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+function setElectronPriority(active: boolean): void {
+  const priority = active
+    ? os.constants.priority.PRIORITY_BELOW_NORMAL
+    : os.constants.priority.PRIORITY_NORMAL
+  for (const metric of app.getAppMetrics()) {
+    try { os.setPriority(metric.pid, priority) } catch { /* unsupported/protected process */ }
+  }
+}
+
+function setGamePerformanceMode(mainWindow: BrowserWindow, active: boolean): void {
+  if (gamePerformanceActive === active) return
+  gamePerformanceActive = active
+  setGameplayUpdatePause(active)
+  setServerStatusPaused(active)
+  setElectronPriority(active)
+
+  // Background throttling remains enabled so hidden launcher windows do not
+  // continuously render while Minecraft owns the foreground/GPU.
+  if (!mainWindow.isDestroyed()) mainWindow.webContents.setBackgroundThrottling(true)
+  if (consoleWindow && !consoleWindow.isDestroyed()) consoleWindow.webContents.setBackgroundThrottling(true)
+
+  appendConsole(
+    active
+      ? '[Performance] Game mode active: launcher priority lowered and background network activity paused.'
+      : '[Performance] Game mode ended: normal launcher activity restored.',
+    'muted'
+  )
+}
+
 function startSecurityMonitor(mainWindow: BrowserWindow, instance: LauncherInstance): void {
   stopSecurityMonitor()
-  let nextModuleScanAt = 0
-  securityTimer = setInterval(() => {
-    if (securityCheckRunning) return
-    securityCheckRunning = true
-    void (async () => {
-      const gameProcesses = await findGameJavaProcesses(instance)
-      if (!gameProcesses.length) return
-      const processIds = gameProcesses.map((item) => item.ProcessId ?? 0)
-      const scanModulesNow = Date.now() >= nextModuleScanAt
-      if (scanModulesNow) nextModuleScanAt = Date.now() + 90_000
-      const [toolFindings, moduleFindings] = await Promise.all([
-        scanRunningTools(),
-        scanModulesNow ? scanLoadedModules(processIds) : Promise.resolve([])
-      ])
-      const finding = [
-        ...scanGameJvmArguments(gameProcesses),
-        ...toolFindings,
-        ...moduleFindings
-      ][0]
-      if (!finding) return
+  const generation = securityMonitorGeneration
+  let gameProcesses: Awaited<ReturnType<typeof findGameJavaProcesses>> = []
+  let jvmArgumentsChecked = false
+  let nextToolScanAt = 0
+  let nextModuleScanAt = Date.now() + 45_000
+  let stopped = false
 
-      const message = `${finding.title}: ${finding.detail}`
-      appendConsole(`[Security] ${message}`, 'error')
-      setConsoleState('Launch protection stopped the game')
-      emit(mainWindow, 'launch:error', { message })
-      await terminateProcesses(processIds)
-      stopSecurityMonitor()
-    })().catch((error) => appendConsole(`[Security] Monitor warning: ${error instanceof Error ? error.message : String(error)}`, 'muted')).finally(() => {
+  const schedule = (delay: number): void => {
+    if (stopped || generation !== securityMonitorGeneration) return
+    securityTimer = setTimeout(() => void run(), delay)
+    securityTimer.unref()
+  }
+
+  const run = async (): Promise<void> => {
+    if (stopped || generation !== securityMonitorGeneration) return
+    if (securityCheckRunning) {
+      schedule(30_000)
+      return
+    }
+    securityCheckRunning = true
+    let foundViolation = false
+    try {
+      gameProcesses = gameProcesses.filter((item) => Boolean(item.ProcessId && processIsAlive(item.ProcessId)))
+      if (!gameProcesses.length) gameProcesses = await findGameJavaProcesses(instance)
+
+      const processIds = gameProcesses.map((item) => item.ProcessId ?? 0).filter((id) => id > 0)
+      const jvmFindings = !jvmArgumentsChecked && gameProcesses.length
+        ? scanGameJvmArguments(gameProcesses)
+        : []
+      if (gameProcesses.length) jvmArgumentsChecked = true
+
+      // Exact process identities are checked infrequently with lightweight
+      // Get-Process. Loaded module inspection is deliberately rare because
+      // enumerating every native module can produce noticeable Windows spikes.
+      const now = Date.now()
+      let toolFindings: Awaited<ReturnType<typeof scanRunningTools>> = []
+      if (now >= nextToolScanAt) {
+        nextToolScanAt = now + 5 * 60_000
+        toolFindings = await scanRunningTools('runtime')
+      }
+      let moduleFindings: Awaited<ReturnType<typeof scanLoadedModules>> = []
+      if (processIds.length && now >= nextModuleScanAt) {
+        nextModuleScanAt = now + 15 * 60_000
+        moduleFindings = await scanLoadedModules(processIds)
+      }
+
+      const finding = [...jvmFindings, ...toolFindings, ...moduleFindings][0]
+      if (finding) {
+        foundViolation = true
+        stopped = true
+        const message = `${finding.title}: ${finding.detail}`
+        appendConsole(`[Security] ${message}`, 'error')
+        setConsoleState('Launch protection stopped the game')
+        emit(mainWindow, 'launch:error', { message })
+        await terminateProcesses(processIds)
+        stopSecurityMonitor()
+      }
+    } catch (error) {
+      appendConsole(`[Security] Monitor warning: ${error instanceof Error ? error.message : String(error)}`, 'muted')
+    } finally {
       securityCheckRunning = false
-    })
-  }, 30_000)
+    }
+    if (!foundViolation && !stopped && generation === securityMonitorGeneration) schedule(120_000)
+  }
+
+  schedule(10_000)
 }
 
 function clientLoadedInText(text: string): boolean {
@@ -344,9 +432,12 @@ function startClientVerification(
   markClientSeen: () => void
 ): void {
   stopClientVerification()
+  const generation = clientVerificationGeneration
   const deadline = verificationStartedAt + 240_000
   const logFallbackAt = verificationStartedAt + 15_000
   const latestLog = path.join(instanceDirectory(instance.slug), 'logs', 'latest.log')
+  let nextLogReadAt = verificationStartedAt + 8_000
+  let lastLogStamp = ''
 
   const finishSuccess = (source: 'marker' | 'log'): void => {
     stopClientVerification()
@@ -371,43 +462,53 @@ function startClientVerification(
   }
 
   const poll = async (): Promise<void> => {
+    if (generation !== clientVerificationGeneration) return
     if (await readClientMarker(payload)) {
       finishSuccess('marker')
       return
     }
 
-    const stat = await fs.stat(latestLog).catch(() => null)
-    if (stat && stat.mtimeMs >= verificationStartedAt - 2_000) {
-      const log = await readTextTail(latestLog).catch(() => '')
-      if (clientLoadedInText(log)) markClientSeen()
-      const failure = clientFailureFromLog(log)
-      if (failure) {
-        await failClosed(`Fabric reported: ${failure}`)
-        return
+    // Fabric logs can be very busy with large modpacks. Read only a small tail
+    // and only when the file actually changed, rather than reading 256 KB every
+    // 1.5 seconds for the entire protected-client verification window.
+    if (Date.now() >= nextLogReadAt) {
+      nextLogReadAt = Date.now() + 8_000
+      const stat = await fs.stat(latestLog).catch(() => null)
+      if (stat && stat.mtimeMs >= verificationStartedAt - 2_000) {
+        const stamp = `${stat.size}:${Math.trunc(stat.mtimeMs)}`
+        if (stamp !== lastLogStamp) {
+          lastLogStamp = stamp
+          const log = await readTextTail(latestLog, 64 * 1024).catch(() => '')
+          if (clientLoadedInText(log)) markClientSeen()
+          const failure = clientFailureFromLog(log)
+          if (failure) {
+            await failClosed(`Fabric reported: ${failure}`)
+            return
+          }
+        }
       }
     }
 
-    // The bundled verifier is the primary proof. Exact Fabric mod-list output is
-    // retained as a compatibility fallback in case a future Loader build changes
-    // verifier reflection internals while still resolving MegaClient successfully.
     if (hasSeenClient() && Date.now() >= logFallbackAt) {
       finishSuccess('log')
       return
     }
 
     if (Date.now() >= deadline) {
-      await failClosed('Neither the runtime verifier nor Fabric\'s active mod list confirmed the protected client. The game was stopped instead of silently starting plain Fabric.')
+      await failClosed("Neither the runtime verifier nor Fabric's active mod list confirmed the protected client. The game was stopped instead of silently starting plain Fabric.")
       return
     }
 
     clientVerificationTimer = setTimeout(() => void poll().catch((error) => {
+      if (generation !== clientVerificationGeneration) return
       appendConsole(`[MegaClient] Verification warning: ${error instanceof Error ? error.message : String(error)}`, 'muted')
       clientVerificationTimer = setTimeout(() => void poll(), 2_000)
-    }), 1_500)
+    }), 2_000)
   }
 
-  clientVerificationTimer = setTimeout(() => void poll(), 1_500)
+  clientVerificationTimer = setTimeout(() => void poll(), 2_000)
 }
+
 function serverGameArgs(address?: string): string[] {
   const value = address?.trim()
   if (!value) return []
@@ -480,6 +581,10 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
       : { install: 'auto', args: javaArgs }
   })
   activeLauncher = launcher
+  // Pause launcher-owned network/background work before Minecraft begins its
+  // own downloads and connections, preventing an update scan from starting
+  // during a long Fabric preparation phase.
+  setGamePerformanceMode(mainWindow, true)
 
   let payloadCleaned = false
   let clientObserved = false
@@ -524,6 +629,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
       appendConsole('[MegaClient] Fabric can read the verified runtime JARs', 'success')
     }
     gameStartedAt = Date.now()
+    setGamePerformanceMode(mainWindow, true)
     progress('launch', serverAddress ? 'Joining partner server' : 'Minecraft is running', 1)
     setConsoleState('Minecraft running')
     showPlayingActivity(instance, serverAddress, gameStartedAt)
@@ -538,7 +644,8 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   })
   launcher.on('launch_data', (line) => {
     const cleaned = line.replace(/\r?\n$/, '')
-    if (clientLoadedInText(cleaned)) clientObserved = true
+    if (!cleaned) return
+    if (!clientObserved && clientLoadedInText(cleaned)) clientObserved = true
     appendConsole(cleaned, 'game')
   })
   launcher.on('launch_debug', (line) => {
@@ -564,6 +671,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     emit(mainWindow, 'launch:crash', data)
   })
   launcher.on('launch_close', (code) => {
+    setGamePerformanceMode(mainWindow, false)
     stopSecurityMonitor()
     stopClientVerification()
     setConsoleState(code === 0 ? 'Finished' : `Exited (${code ?? 'unknown'})`)
@@ -579,6 +687,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     await launcher.launch()
     await updateInstance(instance.id, { lastPlayedAt: new Date().toISOString() })
   } catch (error) {
+    setGamePerformanceMode(mainWindow, false)
     stopSecurityMonitor()
     stopClientVerification()
     destroyGameTray()
@@ -590,6 +699,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     emit(mainWindow, 'launch:error', { message })
     throw error
   } finally {
+    setGamePerformanceMode(mainWindow, false)
     restoreEnvironment()
     await cleanupPayload()
     activeLauncher = null

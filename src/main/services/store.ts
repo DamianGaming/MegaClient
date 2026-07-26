@@ -10,7 +10,7 @@ const defaultSettings: LauncherSettings = {
   width: 1280,
   height: 720,
   fullscreen: false,
-  showConsole: true,
+  showConsole: false,
   minimizeToTrayOnLaunch: true,
   showSnapshots: false,
   javaMode: 'auto',

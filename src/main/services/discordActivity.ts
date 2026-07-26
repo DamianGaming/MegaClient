@@ -13,7 +13,7 @@ interface DiscordActivityPayload {
   buttons?: Array<{ label: string; url: string }>
 }
 
-const RECONNECT_DELAY = 15_000
+const RECONNECT_DELAY = 60_000
 const WEBSITE = 'https://megaclient.co.uk'
 
 let enabled = false
@@ -188,7 +188,8 @@ export async function configureDiscordActivity(value: boolean): Promise<boolean>
   }
 
   // Connecting to the local Discord desktop IPC must never hold up the launcher
-  // startup path. It reconnects quietly in the background when Discord opens.
+  // startup path. Failed reconnects are deliberately infrequent so a closed
+  // Discord client cannot create repeated pipe-probing work during gameplay.
   void ensureConnected()
   return configured
 }

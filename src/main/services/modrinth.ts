@@ -391,6 +391,51 @@ export async function installMod(instanceId: string, projectId: string, onProgre
   })
 }
 
+
+export async function ensureRequiredMod(
+  instanceId: string,
+  projectId: string,
+  onProgress?: (message: string, progress?: number) => void,
+  freshnessMs = 24 * 60 * 60_000
+): Promise<TrackedMod> {
+  return withInstallLock(`required:${instanceId}:${projectId}`, async () => {
+    const instance = getInstance(instanceId)
+    const state = await readState(instance)
+    let existing = state.mods.find((mod) => mod.projectId === projectId && mod.source === 'modrinth')
+    let existingAvailable = false
+
+    if (existing?.fileName) {
+      const enabledPath = path.join(modsDirectory(instance.slug), existing.fileName)
+      const disabledPath = `${enabledPath}.disabled`
+      const enabledExists = await fs.access(enabledPath).then(() => true).catch(() => false)
+      const disabledExists = !enabledExists && await fs.access(disabledPath).then(() => true).catch(() => false)
+      existingAvailable = enabledExists || disabledExists
+
+      if (disabledExists) {
+        await fs.rename(disabledPath, enabledPath)
+        existing = { ...existing, enabled: true }
+        state.mods = state.mods.map((mod) => mod.projectId === projectId ? existing! : mod)
+        await writeState(instance, state)
+      }
+
+      const installedAt = existing.installedAt ? Date.parse(existing.installedAt) : 0
+      if (existingAvailable && installedAt > 0 && Date.now() - installedAt < freshnessMs) {
+        return { ...existing, enabled: true }
+      }
+    }
+
+    try {
+      return await installMod(instanceId, projectId, onProgress)
+    } catch (error) {
+      // A required dependency that is already present should remain usable when
+      // Modrinth is temporarily unavailable. Launching offline is preferable to
+      // repeatedly failing or redownloading Fabric API on every start.
+      if (existing && existingAvailable) return { ...existing, enabled: true }
+      throw error
+    }
+  })
+}
+
 export async function installPack(
   instanceId: string,
   projectId: string,

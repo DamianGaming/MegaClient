@@ -10,6 +10,7 @@ import {
   Download,
   FolderOpen,
   Gamepad2,
+  Gauge,
   HardDrive,
   Home,
   Clock3,
@@ -255,7 +256,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.5')
+  const [version, setVersion] = useState('1.9.6')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -493,7 +494,13 @@ function App() {
             <button onClick={() => window.mega.app.installUpdate()}>Restart and update</button>
           </div>
         )}
-        {update?.state === 'available' && (
+        {update?.pausedForGame && update?.state !== 'ready' && (
+          <div className="update-banner quiet">
+            <Gauge size={16} />
+            <span>{update?.state === 'available' ? `MegaClient ${update.version} was found. Its download will begin after Minecraft closes.` : 'Background update activity is paused while Minecraft is running.'}</span>
+          </div>
+        )}
+        {update?.state === 'available' && !update?.pausedForGame && (
           <div className="update-banner quiet">
             <Download size={16} />
             <span>MegaClient {update.version} was found and is starting its automatic download.</span>
@@ -644,7 +651,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.9.5',
+    launcherVersion: '1.9.6',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -1667,6 +1674,7 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
   const [refreshing, setRefreshing] = useState(false)
 
   const refresh = useCallback(async (force = false) => {
+    if (launching || document.hidden) return
     setRefreshing(true)
     try {
       const entries = await Promise.all(partnerServers.map(async (server) => [server.id, await window.mega.servers.status(server.address, force)] as const))
@@ -1676,13 +1684,19 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
     } finally {
       setRefreshing(false)
     }
-  }, [notify])
+  }, [launching, notify])
 
   useEffect(() => {
+    if (launching || document.hidden) return
     void refresh(false)
-    const timer = window.setInterval(() => void refresh(false), 60_000)
-    return () => window.clearInterval(timer)
-  }, [refresh])
+    const timer = window.setInterval(() => void refresh(false), 90_000)
+    const onVisibility = () => { if (!document.hidden && !launching) void refresh(false) }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [launching, refresh])
 
   const play = async (address: string) => {
     if (!selected) return notify('Select an instance first.', 'error')
@@ -1701,7 +1715,7 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
         eyebrow="Featured"
         title="Partner servers"
         description="Live server details and one-click joining."
-        actions={<button className="secondary" disabled={refreshing} onClick={() => void refresh(true)}><RefreshCw className={refreshing ? 'spin' : ''} size={16} /> Refresh</button>}
+        actions={<button className="secondary" disabled={refreshing || launching} onClick={() => void refresh(true)}><RefreshCw className={refreshing ? 'spin' : ''} size={16} /> Refresh</button>}
       />
       <div className="server-grid">
         {partnerServers.map((server) => {
@@ -1896,6 +1910,7 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
           <div className="setting-row"><div><strong>Maximum memory</strong><small>{(draft.memoryMax / 1024).toFixed(1)} GB</small></div><input type="range" min="2048" max="32768" step="512" value={draft.memoryMax} onChange={(event) => setDraft({ ...draft, memoryMax: Number(event.target.value) })} onPointerUp={commitMemory} onKeyUp={commitMemory} /></div>
           <div className="setting-row"><div><strong>Minimum memory</strong><small>{(draft.memoryMin / 1024).toFixed(1)} GB</small></div><input type="range" min="512" max={Math.max(1024, draft.memoryMax - 512)} step="512" value={draft.memoryMin} onChange={(event) => setDraft({ ...draft, memoryMin: Number(event.target.value) })} onPointerUp={commitMemory} onKeyUp={commitMemory} /></div>
           <div className="settings-hint"><Cpu size={14} /><span>4–8 GB is suitable for most modded instances. Excessive allocation can make Java pauses worse.</span></div>
+          <div className="settings-hint"><Gauge size={14} /><span>While Minecraft runs, MegaClient automatically lowers its own priority and pauses update downloads, server polling and expensive background checks.</span></div>
         </section>
 
         <section className="settings-section">
@@ -1909,7 +1924,7 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
 
         <section className="settings-section">
           <div className="settings-title"><TerminalSquare /><div><h3>Launch behaviour</h3><p>Console and launcher visibility</p></div></div>
-          <SettingToggle title="Open launch console" description="Show a separate live log window while Minecraft starts and runs." checked={draft.showConsole} onChange={(value) => patch({ showConsole: value })} />
+          <SettingToggle title="Open launch console" description="Show a separate live log window. Leave this off for the lowest overhead with very chatty Fabric modpacks." checked={draft.showConsole} onChange={(value) => patch({ showConsole: value })} />
           <SettingToggle title="Move launcher to tray while playing" description="Hide MegaClient when Minecraft starts and restore it when the game closes." checked={draft.minimizeToTrayOnLaunch} onChange={(value) => patch({ minimizeToTrayOnLaunch: value })} />
           <SettingToggle title="Discord activity status" description={discordConfigured ? 'Show whether you are browsing, launching or playing through MegaClient.' : 'Requires a MegaClient Discord application ID in the release configuration.'} checked={draft.discordActivity} onChange={(value) => patch({ discordActivity: value })} />
           {!discordConfigured && <div className="settings-hint warning"><Info size={14} /><span>Discord activity is ready but not configured in this build. Add the application ID before publishing.</span></div>}
@@ -1919,11 +1934,11 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
         <section className="settings-section">
           <div className="settings-title"><RefreshCw /><div><h3>Updates & versions</h3><p>Keep MegaClient current</p></div></div>
           <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2</strong></span></div>
-          <SettingToggle title="Automatic update checks" description="Scan on startup, every 20 minutes, after sleep and when you return to MegaClient. Updates download automatically." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
+          <SettingToggle title="Automatic update checks" description="Scan automatically and download updates in the background, except while Minecraft is launching or running." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
           <SettingToggle title="Show snapshots" description="Include Minecraft snapshots in the instance version list." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
           <div className="update-row update-status-row">
             <span>
-              <strong>{update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%${updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? (update.message ?? 'The last update scan could not finish') : 'Automatic update scanning is ready'}</strong>
+              <strong>{update?.pausedForGame ? (update?.state === 'available' ? `Version ${update.version} will download after Minecraft closes` : 'Update activity paused while Minecraft is running') : update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%${updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? (update.message ?? 'The last update scan could not finish') : 'Automatic update scanning is ready'}</strong>
               <small>{update?.checkedAt
                 ? `Last scan ${new Date(update.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${update?.nextCheckAt && draft.checkUpdates ? ` · Next ${new Date(update.nextCheckAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
                 : draft.checkUpdates ? 'The first scan starts shortly after launch.' : 'Automatic scans are currently disabled.'}</small>
