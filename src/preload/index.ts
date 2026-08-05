@@ -116,6 +116,11 @@ const api = {
       const listener = (_: unknown, payload: unknown) => callback(payload)
       ipcRenderer.on('launch:closed', listener)
       return () => ipcRenderer.removeListener('launch:closed', listener)
+    },
+    onPerformance: (callback: (event: { active: boolean }) => void) => {
+      const listener = (_: unknown, payload: { active: boolean }) => callback(payload)
+      ipcRenderer.on('launch:performance', listener)
+      return () => ipcRenderer.removeListener('launch:performance', listener)
     }
   }
 }

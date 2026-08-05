@@ -1,48 +1,48 @@
-# MegaClient 1.9.6 Build Report
+# MegaClient 1.9.7 Build Report
 
 ## Included protected client
 
-- Built-in client: MegaClient `0.13.1`
+- Built-in client: MegaClient `0.14.2`
 - Minecraft target: `26.2`
 - Required Fabric Loader: `0.19.3` or newer
 - Required Java: `25` or newer
-- Original client JAR SHA-256: `dae16c4990db9a5af83bc648855577210f17c15ee30bc55c3fe1c2d6ae83c154`
-- Encrypted bundle SHA-256: `18cb337487af88d8c495da6c05370ee221825914ad0ef3c30ed388b5d7bc9c83`
-- Launch verifier SHA-256: `f7107c353cca54c05bf4a316a22ff5f6027130384049eb5eede505c6b22249fa`
-- The protected bundle and verifier are byte-for-byte unchanged from the previously validated 1.9.5 release.
+- Original client JAR SHA-256: `9a9dba93b606b2a204c54d528341686c8dfb17cd2abd5e08cbba4aef247d3989`
+- Encrypted bundle SHA-256: `97f94e7ba2d2ee1a329fe8fb57d5ed9368d8a600e40f219751012963ba71ba25`
+- Launch verifier SHA-256: `599bc1db44df88559f2997b49be4709c6ade47b5d9011db66a2e124a397b0d25`
 
-## Performance work completed
+## Launcher work completed
 
-- Added automatic gameplay performance mode.
-- Cancels an active launcher update download when Minecraft starts and resumes it after Minecraft exits.
-- Pauses update checks, update downloads and partner-server status requests during gameplay.
-- Lowers only MegaClient Electron process priority while leaving the Minecraft Java process untouched.
-- Replaced frequent full Windows process scans with lightweight, cached and much less frequent checks.
-- Reduced native-module scans from every 90 seconds to an initial delayed check followed by 15-minute intervals.
-- Added generation guards so stopped security and client-verification loops cannot restart after Minecraft closes.
-- Reduced protected-client log polling from a 256 KB read every 1.5 seconds to a changed 64 KB tail read every 8 seconds.
-- Reduced console flush frequency, retained history and DOM size.
-- Disabled the separate launch console by default for new installations.
-- Reuses configured compatible loaders rather than querying loader services before every start.
-- Reuses a recently installed Fabric API dependency and supports offline fallback when the local dependency is valid.
-- Added loader-version, DNS and server-status caching and in-flight request sharing.
-- Pauses renderer server polling while Minecraft runs or the launcher is hidden.
-- Reduced Discord IPC reconnect attempts from every 15 seconds to every 60 seconds when Discord is closed.
+- Added a renderer event for the automatic game-performance state.
+- Added focused/unfocused interface state handling.
+- Automatically pauses decorative animations and removes costly shadows during gameplay.
+- Automatically pauses non-essential visual animation while the launcher is unfocused.
+- Rebuilt the home hero area into a cleaner live system/status panel.
+- Improved title-bar status tones and gameplay state visibility.
+- Reduced launch-console DOM history, pending batches and retained memory.
+- Added asynchronous decoding and lazy loading to more remote artwork.
+- Removed the duplicate `account:set-cape` IPC handler.
+- Updated launcher fallback versions and network user agent to 1.9.7 / client 0.14.2.
 
-## Validation completed here
+## Protected-resource validation completed
 
-- TypeScript and TSX syntax transpilation passed for every implementation file.
-- Static performance-mode assertions passed.
-- Update cancellation/gameplay-pause state test passed with a mocked updater.
-- Server-status gameplay-pause test passed.
-- Package and lock-file versions are both `1.9.6`.
-- Protected-resource checksums match the previously validated MegaClient 0.13.1 resources.
+- The uploaded JAR contains `fabric.mod.json`.
+- Mod ID is `megaclient`.
+- Client version is `0.14.2`.
+- Minecraft requirement is `~26.2`.
+- Fabric Loader requirement is `>=0.19.3`.
+- Fabric API requirement is present.
+- The client entrypoint is `dev.velora.client.VeloraClient`.
+- The entrypoint class uses Java class version 69 (Java 25).
+- The encrypted bundle was decrypted independently and matched the uploaded JAR byte-for-byte.
+- The launch verifier metadata and embedded expected client version were updated to 0.14.2.
+- TypeScript and TSX implementation files passed syntax/transpilation validation.
+- Source and upgrade archives are checked after creation.
 
 ## Validation still required
 
-The dependency registry available in this environment returned `503 Service Temporarily Unavailable` during `npm ci`. Because dependencies could not be restored, the full strict TypeScript check and Electron/Vite production build could not be rerun here.
+The package registry available in this environment returned missing-package `404` responses during `npm ci`. Because the complete dependency tree could not be restored, the full strict TypeScript check and Electron/Vite production build could not be rerun here.
 
-Before publishing, run on Windows or allow GitHub Actions to run:
+Before publishing, run:
 
 ```bat
 npm ci
@@ -51,4 +51,4 @@ npm run typecheck
 npm run build
 ```
 
-The final NSIS installer, live Fabric multiplayer ping test, Simple Voice Chat test and Microsoft-authenticated launch must also be confirmed on Windows. The launcher changes remove identified MegaClient-owned bandwidth, process-scan, console and polling spikes; they cannot correct latency caused by the Minecraft server, ISP, Wi-Fi or an individual third-party mod.
+The final NSIS installer and a real Microsoft-authenticated Fabric/MegaClient launch must also be confirmed on Windows.

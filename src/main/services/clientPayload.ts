@@ -11,9 +11,9 @@ import { metadataDirectory, modsDirectory } from './paths'
 const execFileAsync = promisify(execFile)
 const MAGIC = Buffer.from('MCB1', 'ascii')
 const AAD = Buffer.from('MegaClientPayload:v1', 'utf8')
-export const EXPECTED_CLIENT_JAR_SHA256 = 'dae16c4990db9a5af83bc648855577210f17c15ee30bc55c3fe1c2d6ae83c154'
-export const EXPECTED_VERIFIER_SHA256 = 'f7107c353cca54c05bf4a316a22ff5f6027130384049eb5eede505c6b22249fa'
-export const PROTECTED_CLIENT_VERSION = '0.13.1'
+export const EXPECTED_CLIENT_JAR_SHA256 = '9a9dba93b606b2a204c54d528341686c8dfb17cd2abd5e08cbba4aef247d3989'
+export const EXPECTED_VERIFIER_SHA256 = '599bc1db44df88559f2997b49be4709c6ade47b5d9011db66a2e124a397b0d25'
+export const PROTECTED_CLIENT_VERSION = '0.14.2'
 export const PROTECTED_MINECRAFT_VERSION = '26.2'
 export const MINIMUM_PROTECTED_CLIENT_LOADER = '0.19.3'
 const KEY_PARTS = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${PROTECTED_MINECRAFT_VERSION}::${PROTECTED_CLIENT_VERSION}`] as const

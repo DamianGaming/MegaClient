@@ -8,7 +8,7 @@ import { login, logout, restore } from './services/account'
 import { createInstance, deleteInstance, getInstance, openInstanceFolder, updateInstance, copyLocalMod } from './services/instances'
 import { getLoaderVersions, getMinecraftVersions } from './services/versions'
 import { installMod, installModpack, installPack, listMods, listPacks, removeMod, removePack, searchContent, setModEnabled, setPackEnabled, updateAllMods, updateMod } from './services/modrinth'
-import { CLIENT_VERSION, launchInstance, openLaunchConsole } from './services/launcher'
+import { CLIENT_VERSION, isGamePerformanceModeActive, launchInstance, openLaunchConsole } from './services/launcher'
 import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
@@ -395,6 +395,7 @@ function registerIpc(): void {
       clientVersion: CLIENT_VERSION,
       update: updaterState(),
       discordConfigured: isDiscordActivityConfigured(),
+      gamePerformanceMode: isGamePerformanceModeActive(),
       packaged: app.isPackaged
     }
   })

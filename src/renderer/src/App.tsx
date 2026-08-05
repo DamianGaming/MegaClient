@@ -56,7 +56,7 @@ interface BootStatus {
   detail?: string
 }
 
-const CLIENT_FALLBACK_VERSION = '0.13.1'
+const CLIENT_FALLBACK_VERSION = '0.14.2'
 const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
@@ -256,7 +256,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.6')
+  const [version, setVersion] = useState('1.9.7')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -264,6 +264,7 @@ function App() {
   const [bootElapsed, setBootElapsed] = useState(0)
   const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null)
   const [launching, setLaunching] = useState(false)
+  const [gamePerformanceMode, setGamePerformanceMode] = useState(false)
   const [launchProgress, setLaunchProgress] = useState<{
     phase?: string
     message: string
@@ -331,6 +332,7 @@ function App() {
       setClientVersion(data.clientVersion ?? CLIENT_FALLBACK_VERSION)
       setUpdate(data.update ?? null)
       setDiscordConfigured(Boolean(data.discordConfigured))
+      setGamePerformanceMode(Boolean(data.gamePerformanceMode))
     } catch (error) {
       const message = errorMessage(error)
       if (initial) setBootError(message)
@@ -365,9 +367,13 @@ function App() {
   }), [notify])
   useEffect(() => window.mega.launchEvents.onClosed(() => {
     setLaunching(false)
+    setGamePerformanceMode(false)
     setLaunchProgress({ message: '' })
     void bootstrap()
   }), [bootstrap])
+  useEffect(() => window.mega.launchEvents.onPerformance((event) => {
+    setGamePerformanceMode(Boolean(event?.active))
+  }), [])
   useEffect(() => window.mega.app.onUpdate(setUpdate), [])
   useEffect(() => {
     const retryUpdatesWhenOnline = () => void window.mega.app.checkUpdates()
@@ -378,6 +384,25 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.reducedMotion = settings?.reducedMotion ? 'true' : 'false'
   }, [settings?.reducedMotion])
+
+  useEffect(() => {
+    document.documentElement.dataset.gamePerformance = gamePerformanceMode ? 'true' : 'false'
+  }, [gamePerformanceMode])
+
+  useEffect(() => {
+    const updateWindowActivity = () => {
+      document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false'
+    }
+    updateWindowActivity()
+    window.addEventListener('focus', updateWindowActivity)
+    window.addEventListener('blur', updateWindowActivity)
+    document.addEventListener('visibilitychange', updateWindowActivity)
+    return () => {
+      window.removeEventListener('focus', updateWindowActivity)
+      window.removeEventListener('blur', updateWindowActivity)
+      document.removeEventListener('visibilitychange', updateWindowActivity)
+    }
+  }, [])
 
   const selectInstance = async (id: string) => {
     setSelectedId(id)
@@ -456,7 +481,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
+      <Titlebar status={gamePerformanceMode ? 'Game performance mode' : launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
           <img src="./logo.png" alt="MegaClient" />
@@ -478,7 +503,7 @@ function App() {
             </div>
           )}
           <button className={`account-mini ${accountMenuOpen ? 'open' : ''}`} onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}>
-            <img src={account.avatarUrl} alt="" />
+            <img src={account.avatarUrl} alt="" decoding="async" referrerPolicy="no-referrer" />
             <span><strong>{account.name}</strong><small>Microsoft account</small></span>
             <ChevronDown size={15} />
           </button>
@@ -513,13 +538,14 @@ function App() {
             <div className="banner-progress"><i style={{ width: `${Math.max(2, update.percent ?? 0)}%` }} /></div>
           </div>
         )}
-        {launching && <ActivityBanner progress={launchProgress} onConsole={() => window.mega.instances.openConsole()} />}
+        {launching && <ActivityBanner progress={launchProgress} performanceMode={gamePerformanceMode} onConsole={() => window.mega.instances.openConsole()} />}
         {tab === 'home' && (
           <HomeView
             selected={selected}
             launching={launching}
             progress={launchProgress}
             clientVersion={clientVersion}
+            performanceMode={gamePerformanceMode}
             onLaunch={launch}
             onInstances={() => setTab('instances')}
             onBrowse={() => setTab('browse')}
@@ -599,13 +625,13 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
   )
 }
 
-function ActivityBanner({ progress, onConsole }: { progress: any; onConsole: () => void }) {
+function ActivityBanner({ progress, performanceMode, onConsole }: { progress: any; performanceMode: boolean; onConsole: () => void }) {
   const overall = launchPhaseProgress(progress.phase, progress.progress)
   const percent = Math.round(overall * 100)
   return (
     <div className="activity-banner" aria-live="polite">
-      <div className="activity-icon"><RefreshCw className="spin" /></div>
-      <div className="activity-copy"><strong>{progress.message || 'Preparing Minecraft'}</strong><small>{launchPhaseLabel(progress.phase)} · {percent}% complete</small></div>
+      <div className={`activity-icon ${performanceMode ? 'performance' : ''}`}>{performanceMode ? <Gauge /> : <RefreshCw className="spin" />}</div>
+      <div className="activity-copy"><strong>{progress.message || 'Preparing Minecraft'}</strong><small>{performanceMode ? 'Launcher background activity reduced · ' : ''}{launchPhaseLabel(progress.phase)} · {percent}% complete</small></div>
       {progress.total ? <span className="activity-transfer">{formatBytes(progress.downloaded)} / {formatBytes(progress.total)}</span> : null}
       <button onClick={onConsole}><TerminalSquare /> Console</button>
       <div className="activity-progress"><i style={{ width: `${Math.max(3, percent)}%` }} /></div>
@@ -651,7 +677,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.9.6',
+    launcherVersion: '1.9.7',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -753,10 +779,11 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
 }
 
 function Titlebar({ status }: { status?: string } = {}) {
+  const tone = status === 'Ready' ? 'ready' : status === 'Offline' ? 'offline' : status?.includes('performance') ? 'performance' : 'working'
   return (
     <header className="titlebar">
       <div className="titlebar-label"><img src="./logo.png" alt="" /><span>MegaClient</span></div>
-      {status && <div className="titlebar-status"><i className={status === 'Ready' ? 'ready' : ''} /><span>{status}</span></div>}
+      {status && <div className={`titlebar-status ${tone}`}><i /><span>{status}</span></div>}
       <div className="drag-region" />
       <div className="window-buttons">
         <button aria-label="Minimise" onClick={() => window.mega.window.minimize()}><Minus size={15} /></button>
@@ -781,7 +808,7 @@ function PageHeading({ eyebrow, title, description, actions }: {
   )
 }
 
-function HomeView({ selected, launching, progress, clientVersion, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
+function HomeView({ selected, launching, progress, clientVersion, performanceMode, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
   return (
     <div className="page home-page">
       <section className="hero-card">
@@ -797,12 +824,27 @@ function HomeView({ selected, launching, progress, clientVersion, onLaunch, onIn
             <button className="secondary large" onClick={onInstances}><Library size={18} /> Instances</button>
           </div>
         </div>
-        <div className="hero-mark"><div className="orbit one" /><div className="orbit two" /><img src="./logo.png" alt="" /></div>
+        <div className="hero-system">
+          <div className="hero-system-visual">
+            <div className="orbit one" /><div className="orbit two" />
+            <div className="hero-logo-core"><img src="./logo.png" alt="" /></div>
+          </div>
+          <div className="hero-system-copy">
+            <span className={`hero-live-state ${performanceMode ? 'performance' : launching ? 'working' : 'ready'}`}><i />{performanceMode ? 'Game performance mode' : launching ? 'Preparing Minecraft' : 'Launcher ready'}</span>
+            <strong>{selected?.name ?? 'Create your first instance'}</strong>
+            <small>{selected ? `Minecraft ${selected.minecraftVersion} · ${loaderLabel(selected.loader)}` : 'Vanilla, Fabric, Forge and NeoForge supported'}</small>
+          </div>
+          <div className="hero-system-metrics">
+            <span><Gauge /><b>{performanceMode ? 'Active' : 'Automatic'}</b><small>Performance mode</small></span>
+            <span><ShieldCheck /><b>Protected</b><small>Client {clientVersion}</small></span>
+            <span><Zap /><b>Adaptive</b><small>Background activity</small></span>
+          </div>
+        </div>
       </section>
 
       <div className="home-grid">
         <section className="panel selected-panel">
-          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
+          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{performanceMode ? 'Performance mode' : launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
           {selected ? (
             <>
               <div className="instance-feature">
@@ -1492,7 +1534,7 @@ function ModsManager({ selected, notify }: { selected?: Instance; notify: (messa
         {loading && !mods.length && <LoadingRows count={4} compact />}
         {mods.map((mod) => (
           <div className={`mod-row ${!mod.enabled ? 'disabled' : ''}`} key={mod.fileName}>
-            <div className="mod-name"><div>{mod.iconUrl ? <img src={mod.iconUrl} alt="" loading="lazy" /> : <Box />}</div><span><strong>{mod.title}</strong><small>{mod.fileName}</small></span></div>
+            <div className="mod-name"><div>{mod.iconUrl ? <img src={mod.iconUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <Box />}</div><span><strong>{mod.title}</strong><small>{mod.fileName}</small></span></div>
             <span>{mod.versionNumber ?? 'Local file'}</span>
             <span className="source-tag">{mod.source === 'modrinth' ? 'Modrinth' : 'Local'}</span>
             <button className={`toggle ${mod.enabled ? 'on' : ''}`} aria-label={mod.enabled ? `Disable ${mod.title}` : `Enable ${mod.title}`} onClick={() => toggle(mod)}><i /></button>
@@ -1555,7 +1597,7 @@ function PacksManager({ selected, type, notify }: { selected?: Instance; type: '
       <div className="pack-grid">
         {packs.map((pack) => (
           <article className={`pack-card ${pack.enabled ? '' : 'disabled'}`} key={`${pack.contentType}:${pack.fileName}`}>
-            <div className="pack-icon">{pack.iconUrl ? <img src={pack.iconUrl} alt="" loading="lazy" /> : type === 'resourcepack' ? <Image /> : <Sparkles />}</div>
+            <div className="pack-icon">{pack.iconUrl ? <img src={pack.iconUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : type === 'resourcepack' ? <Image /> : <Sparkles />}</div>
             <div className="pack-copy"><h3>{pack.title}</h3><p>{pack.versionNumber ?? 'Local file'}</p></div>
             <button className={`toggle ${pack.enabled ? 'on' : ''}`} aria-label={pack.enabled ? 'Disable' : 'Enable'} onClick={() => toggle(pack)}><i /></button>
             <button className="icon-button danger-icon" title="Remove" onClick={() => setPendingRemove(pack)}><Trash2 size={16} /></button>
@@ -1723,7 +1765,7 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
           return (
             <article className={`server-card live-server-card ${status?.online ? 'online' : status ? 'offline' : 'loading'}`} key={server.id}>
               <div className="server-art">
-                {status?.icon ? <img src={status.icon} alt={`${server.name} server icon`} /> : <Server size={42} />}
+                {status?.icon ? <img src={status.icon} alt={`${server.name} server icon`} loading="lazy" decoding="async" /> : <Server size={42} />}
                 <span>{status?.online ? 'Online' : status ? 'Offline' : 'Checking'}</span>
               </div>
               <div className="server-copy">

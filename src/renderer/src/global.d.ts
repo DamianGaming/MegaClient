@@ -70,6 +70,7 @@ declare global {
         onError(callback: (event: any) => void): () => void
         onWarning(callback: (event: any) => void): () => void
         onClosed(callback: (event: any) => void): () => void
+        onPerformance(callback: (event: { active: boolean }) => void): () => void
       }
     }
   }
