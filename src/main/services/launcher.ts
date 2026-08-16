@@ -102,7 +102,7 @@ function flushConsole(): void {
   }
   if (!consolePending.length) return
   const batch = consolePending.splice(0, consolePending.length)
-  const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); while(log.childElementCount>700)log.firstElementChild?.remove(); log.scrollTop=log.scrollHeight; })()`
+  const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); while(log.childElementCount>900)log.firstElementChild?.remove(); log.scrollTop=log.scrollHeight; })()`
   void consoleWindow.webContents.executeJavaScript(script).catch(() => undefined)
 }
 
@@ -112,7 +112,7 @@ function queueConsole(entries: typeof consolePending): void {
   // game for CPU/GPU time.
   if (!consoleWindow || consoleWindow.isDestroyed() || !consoleWindow.isVisible() || consoleWindow.isMinimized()) return
   consolePending.push(...entries)
-  if (consolePending.length > 280) consolePending = consolePending.slice(-220)
+  if (consolePending.length > 400) consolePending = consolePending.slice(-300)
   if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, gamePerformanceActive ? 500 : 140)
 }
 
@@ -120,7 +120,7 @@ function replayConsole(): void {
   if (!consoleWindow || consoleWindow.isDestroyed()) return
   consolePending = []
   void consoleWindow.webContents.executeJavaScript("document.getElementById('log')?.replaceChildren()").then(() => {
-    queueConsole(consoleLines.slice(-700))
+    queueConsole(consoleLines.slice(-900))
   }).catch(() => undefined)
 }
 
@@ -168,7 +168,7 @@ function showConsole(): BrowserWindow {
 function appendConsole(line: string, kind: 'info' | 'error' | 'game' | 'muted' | 'success' = 'info'): void {
   const entry = { line, kind }
   consoleLines.push(entry)
-  if (consoleLines.length > 1100) consoleLines = consoleLines.slice(-800)
+  if (consoleLines.length > 1400) consoleLines = consoleLines.slice(-1000)
   queueConsole([entry])
 }
 
@@ -280,6 +280,8 @@ function setElectronPriority(active: boolean): void {
   }
 }
 
+export function isGamePerformanceModeActive(): boolean { return gamePerformanceActive }
+
 function setGamePerformanceMode(mainWindow: BrowserWindow, active: boolean): void {
   if (gamePerformanceActive === active) return
   gamePerformanceActive = active
@@ -291,7 +293,7 @@ function setGamePerformanceMode(mainWindow: BrowserWindow, active: boolean): voi
   // continuously render while Minecraft owns the foreground/GPU.
   if (!mainWindow.isDestroyed()) {
     mainWindow.webContents.setBackgroundThrottling(true)
-    emit(mainWindow, 'launch:performance', { active })
+    mainWindow.webContents.send('launcher:performance-mode', active)
   }
   if (consoleWindow && !consoleWindow.isDestroyed()) consoleWindow.webContents.setBackgroundThrottling(true)
 
@@ -707,10 +709,6 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     await cleanupPayload()
     activeLauncher = null
   }
-}
-
-export function isGamePerformanceModeActive(): boolean {
-  return gamePerformanceActive
 }
 
 export function openLaunchConsole(): void {

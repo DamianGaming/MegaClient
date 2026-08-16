@@ -16,6 +16,7 @@ declare global {
         installUpdate(): Promise<void>
         onBootStatus(callback: (event: { value: number; message: string; detail?: string }) => void): () => void
         onUpdate(callback: (event: any) => void): () => void
+        onPerformanceMode(callback: (active: boolean) => void): () => void
         onSplashProgress(callback: (event: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => void): () => void
         onSplashLeaving(callback: () => void): () => void
       }
@@ -28,6 +29,11 @@ declare global {
         setCape(capeId?: string): Promise<any>
       }
       instances: {
+        chooseImportFile(): Promise<string | null>
+        chooseImportFolder(): Promise<string | null>
+        inspectImport(sourcePath: string): Promise<any>
+        importSetup(input: any): Promise<any>
+        onImportProgress(callback: (event: { message: string; progress?: number }) => void): () => void
         create(input: any): Promise<any>
         update(id: string, patch: any): Promise<any>
         delete(id: string): Promise<void>
@@ -70,7 +76,6 @@ declare global {
         onError(callback: (event: any) => void): () => void
         onWarning(callback: (event: any) => void): () => void
         onClosed(callback: (event: any) => void): () => void
-        onPerformance(callback: (event: { active: boolean }) => void): () => void
       }
     }
   }

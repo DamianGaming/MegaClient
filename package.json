@@ -1,8 +1,8 @@
 {
   "name": "megaclient-launcher",
   "productName": "MegaClient",
-  "version": "1.9.7",
-  "description": "A clean, responsive Minecraft launcher with adaptive game performance mode, reliable automatic updates, Microsoft account restoration, isolated instances, Discord activity and protected MegaClient 26.2 support.",
+  "version": "1.10.0",
+  "description": "A clean, lightweight Minecraft launcher with profile importing, adaptive game performance mode, automatic updates, isolated instances, Discord activity and protected MegaClient 26.2 support.",
   "type": "module",
   "main": "./out/main/index.js",
   "author": "MegaStudios",

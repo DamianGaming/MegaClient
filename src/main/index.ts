@@ -16,6 +16,7 @@ import { getPartnerServerStatus } from './services/servers'
 import { checkForUpdates, configureAutomaticUpdates, installReadyUpdate, notifyWindowFocused, setupUpdater, updaterState } from './services/updater'
 import { configureDiscordActivity, isDiscordActivityConfigured, showLauncherActivity, shutdownDiscordActivity } from './services/discordActivity'
 import { cleanupStaleProtectedClientArtifacts } from './services/clientPayload'
+import { inspectImportSource, importMinecraftSetup } from './services/imports'
 
 const execFileAsync = promisify(execFile)
 
@@ -395,8 +396,8 @@ function registerIpc(): void {
       clientVersion: CLIENT_VERSION,
       update: updaterState(),
       discordConfigured: isDiscordActivityConfigured(),
-      gamePerformanceMode: isGamePerformanceModeActive(),
-      packaged: app.isPackaged
+      packaged: app.isPackaged,
+      gamePerformanceMode: isGamePerformanceModeActive()
     }
   })
   ipcMain.handle('versions:minecraft', (_event, snapshots: boolean) => getMinecraftVersions(Boolean(snapshots)))
@@ -429,6 +430,38 @@ function registerIpc(): void {
   })
   ipcMain.handle('account:set-skin', (_event, file: string, variant: 'classic' | 'slim') => updateSkin(requireWindow(), file, variant))
   ipcMain.handle('account:set-cape', (_event, capeId?: string) => switchCape(requireWindow(), capeId))
+
+  ipcMain.handle('instances:choose-import-file', async () => {
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: 'Import a Minecraft profile',
+      buttonLabel: 'Choose profile',
+      properties: ['openFile', 'dontAddToRecent'],
+      filters: [
+        { name: 'Minecraft profiles', extensions: ['mrpack', 'dawnpack', 'zip'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    return result.canceled ? null : result.filePaths[0] ?? null
+  })
+  ipcMain.handle('instances:choose-import-folder', async () => {
+    const result = await dialog.showOpenDialog(requireWindow(), {
+      title: 'Choose a Minecraft profile folder',
+      buttonLabel: 'Choose folder',
+      properties: ['openDirectory', 'dontAddToRecent']
+    })
+    return result.canceled ? null : result.filePaths[0] ?? null
+  })
+  ipcMain.handle('instances:inspect-import', (_event, sourcePath: string) => inspectImportSource(sourcePath))
+  ipcMain.handle('instances:import', (_event, input) => {
+    const window = requireWindow()
+    let lastProgressSentAt = 0
+    return importMinecraftSetup(input, (payload) => {
+      const now = Date.now()
+      if (payload.progress !== 1 && now - lastProgressSentAt < 75) return
+      lastProgressSentAt = now
+      if (!window.isDestroyed()) window.webContents.send('instances:import-progress', payload)
+    })
+  })
 
   ipcMain.handle('instances:create', (_event, input) => createInstance(input))
   ipcMain.handle('instances:update', (_event, id: string, patch) => updateInstance(id, patch))

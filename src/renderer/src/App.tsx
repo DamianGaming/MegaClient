@@ -93,6 +93,20 @@ interface Instance {
   modpack?: { title: string; projectId: string; versionId: string }
 }
 
+interface ImportSourcePreview {
+  sourcePath: string
+  kind: 'curseforge' | 'modrinth' | 'lunar' | 'prism' | 'minecraft' | 'generic'
+  sourceLabel: string
+  name: string
+  minecraftVersion?: string
+  loader?: Loader
+  loaderVersion?: string
+  unsupportedLoader?: string
+  content: { mods: number; resourcePacks: number; shaders: number; worlds: number; configurationFiles: number; otherFiles: number }
+  warnings: string[]
+  referencedRemoteMods?: number
+}
+
 interface SettingsData {
   memoryMin: number
   memoryMax: number
@@ -256,7 +270,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.9.7')
+  const [version, setVersion] = useState('1.10.0')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -264,7 +278,6 @@ function App() {
   const [bootElapsed, setBootElapsed] = useState(0)
   const [toast, setToast] = useState<{ message: string; kind: ToastKind } | null>(null)
   const [launching, setLaunching] = useState(false)
-  const [gamePerformanceMode, setGamePerformanceMode] = useState(false)
   const [launchProgress, setLaunchProgress] = useState<{
     phase?: string
     message: string
@@ -332,7 +345,7 @@ function App() {
       setClientVersion(data.clientVersion ?? CLIENT_FALLBACK_VERSION)
       setUpdate(data.update ?? null)
       setDiscordConfigured(Boolean(data.discordConfigured))
-      setGamePerformanceMode(Boolean(data.gamePerformanceMode))
+      document.documentElement.dataset.gamePerformance = String(Boolean(data.gamePerformanceMode))
     } catch (error) {
       const message = errorMessage(error)
       if (initial) setBootError(message)
@@ -348,6 +361,7 @@ function App() {
     void window.mega.app.rendererReady()
   }, [])
   useEffect(() => window.mega.app.onBootStatus(setBootStatus), [])
+  useEffect(() => window.mega.app.onPerformanceMode((active) => { document.documentElement.dataset.gamePerformance = String(active) }), [])
   useEffect(() => { void bootstrap(true) }, [bootstrap])
   useEffect(() => {
     if (!booting) return
@@ -367,13 +381,9 @@ function App() {
   }), [notify])
   useEffect(() => window.mega.launchEvents.onClosed(() => {
     setLaunching(false)
-    setGamePerformanceMode(false)
     setLaunchProgress({ message: '' })
     void bootstrap()
   }), [bootstrap])
-  useEffect(() => window.mega.launchEvents.onPerformance((event) => {
-    setGamePerformanceMode(Boolean(event?.active))
-  }), [])
   useEffect(() => window.mega.app.onUpdate(setUpdate), [])
   useEffect(() => {
     const retryUpdatesWhenOnline = () => void window.mega.app.checkUpdates()
@@ -384,25 +394,6 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.reducedMotion = settings?.reducedMotion ? 'true' : 'false'
   }, [settings?.reducedMotion])
-
-  useEffect(() => {
-    document.documentElement.dataset.gamePerformance = gamePerformanceMode ? 'true' : 'false'
-  }, [gamePerformanceMode])
-
-  useEffect(() => {
-    const updateWindowActivity = () => {
-      document.documentElement.dataset.windowActive = document.hasFocus() ? 'true' : 'false'
-    }
-    updateWindowActivity()
-    window.addEventListener('focus', updateWindowActivity)
-    window.addEventListener('blur', updateWindowActivity)
-    document.addEventListener('visibilitychange', updateWindowActivity)
-    return () => {
-      window.removeEventListener('focus', updateWindowActivity)
-      window.removeEventListener('blur', updateWindowActivity)
-      document.removeEventListener('visibilitychange', updateWindowActivity)
-    }
-  }, [])
 
   const selectInstance = async (id: string) => {
     setSelectedId(id)
@@ -481,7 +472,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Titlebar status={gamePerformanceMode ? 'Game performance mode' : launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
+      <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
           <img src="./logo.png" alt="MegaClient" />
@@ -503,7 +494,7 @@ function App() {
             </div>
           )}
           <button className={`account-mini ${accountMenuOpen ? 'open' : ''}`} onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}>
-            <img src={account.avatarUrl} alt="" decoding="async" referrerPolicy="no-referrer" />
+            <img src={account.avatarUrl} alt="" />
             <span><strong>{account.name}</strong><small>Microsoft account</small></span>
             <ChevronDown size={15} />
           </button>
@@ -538,14 +529,13 @@ function App() {
             <div className="banner-progress"><i style={{ width: `${Math.max(2, update.percent ?? 0)}%` }} /></div>
           </div>
         )}
-        {launching && <ActivityBanner progress={launchProgress} performanceMode={gamePerformanceMode} onConsole={() => window.mega.instances.openConsole()} />}
+        {launching && <ActivityBanner progress={launchProgress} onConsole={() => window.mega.instances.openConsole()} />}
         {tab === 'home' && (
           <HomeView
             selected={selected}
             launching={launching}
             progress={launchProgress}
             clientVersion={clientVersion}
-            performanceMode={gamePerformanceMode}
             onLaunch={launch}
             onInstances={() => setTab('instances')}
             onBrowse={() => setTab('browse')}
@@ -625,13 +615,13 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
   )
 }
 
-function ActivityBanner({ progress, performanceMode, onConsole }: { progress: any; performanceMode: boolean; onConsole: () => void }) {
+function ActivityBanner({ progress, onConsole }: { progress: any; onConsole: () => void }) {
   const overall = launchPhaseProgress(progress.phase, progress.progress)
   const percent = Math.round(overall * 100)
   return (
     <div className="activity-banner" aria-live="polite">
-      <div className={`activity-icon ${performanceMode ? 'performance' : ''}`}>{performanceMode ? <Gauge /> : <RefreshCw className="spin" />}</div>
-      <div className="activity-copy"><strong>{progress.message || 'Preparing Minecraft'}</strong><small>{performanceMode ? 'Launcher background activity reduced · ' : ''}{launchPhaseLabel(progress.phase)} · {percent}% complete</small></div>
+      <div className="activity-icon"><RefreshCw className="spin" /></div>
+      <div className="activity-copy"><strong>{progress.message || 'Preparing Minecraft'}</strong><small>{launchPhaseLabel(progress.phase)} · {percent}% complete</small></div>
       {progress.total ? <span className="activity-transfer">{formatBytes(progress.downloaded)} / {formatBytes(progress.total)}</span> : null}
       <button onClick={onConsole}><TerminalSquare /> Console</button>
       <div className="activity-progress"><i style={{ width: `${Math.max(3, percent)}%` }} /></div>
@@ -677,7 +667,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.9.7',
+    launcherVersion: '1.10.0',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -779,11 +769,10 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
 }
 
 function Titlebar({ status }: { status?: string } = {}) {
-  const tone = status === 'Ready' ? 'ready' : status === 'Offline' ? 'offline' : status?.includes('performance') ? 'performance' : 'working'
   return (
     <header className="titlebar">
       <div className="titlebar-label"><img src="./logo.png" alt="" /><span>MegaClient</span></div>
-      {status && <div className={`titlebar-status ${tone}`}><i /><span>{status}</span></div>}
+      {status && <div className="titlebar-status"><i className={status === 'Ready' ? 'ready' : ''} /><span>{status}</span></div>}
       <div className="drag-region" />
       <div className="window-buttons">
         <button aria-label="Minimise" onClick={() => window.mega.window.minimize()}><Minus size={15} /></button>
@@ -808,7 +797,7 @@ function PageHeading({ eyebrow, title, description, actions }: {
   )
 }
 
-function HomeView({ selected, launching, progress, clientVersion, performanceMode, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
+function HomeView({ selected, launching, progress, clientVersion, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
   return (
     <div className="page home-page">
       <section className="hero-card">
@@ -824,27 +813,12 @@ function HomeView({ selected, launching, progress, clientVersion, performanceMod
             <button className="secondary large" onClick={onInstances}><Library size={18} /> Instances</button>
           </div>
         </div>
-        <div className="hero-system">
-          <div className="hero-system-visual">
-            <div className="orbit one" /><div className="orbit two" />
-            <div className="hero-logo-core"><img src="./logo.png" alt="" /></div>
-          </div>
-          <div className="hero-system-copy">
-            <span className={`hero-live-state ${performanceMode ? 'performance' : launching ? 'working' : 'ready'}`}><i />{performanceMode ? 'Game performance mode' : launching ? 'Preparing Minecraft' : 'Launcher ready'}</span>
-            <strong>{selected?.name ?? 'Create your first instance'}</strong>
-            <small>{selected ? `Minecraft ${selected.minecraftVersion} · ${loaderLabel(selected.loader)}` : 'Vanilla, Fabric, Forge and NeoForge supported'}</small>
-          </div>
-          <div className="hero-system-metrics">
-            <span><Gauge /><b>{performanceMode ? 'Active' : 'Automatic'}</b><small>Performance mode</small></span>
-            <span><ShieldCheck /><b>Protected</b><small>Client {clientVersion}</small></span>
-            <span><Zap /><b>Adaptive</b><small>Background activity</small></span>
-          </div>
-        </div>
+        <div className="hero-mark"><div className="orbit one" /><div className="orbit two" /><img src="./logo.png" alt="" /></div>
       </section>
 
       <div className="home-grid">
         <section className="panel selected-panel">
-          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{performanceMode ? 'Performance mode' : launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
+          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
           {selected ? (
             <>
               <div className="instance-feature">
@@ -886,6 +860,7 @@ function HomeView({ selected, launching, progress, clientVersion, performanceMod
 
 function InstancesView({ instances, selectedId, settings, onSelect, onChanged, notify }: any) {
   const [showCreate, setShowCreate] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<Instance>()
   const remove = async (instance: Instance) => {
     try {
@@ -893,9 +868,7 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
       setPendingDelete(undefined)
       await onChanged()
       notify('Instance deleted.', 'success')
-    } catch (error) {
-      notify(errorMessage(error), 'error')
-    }
+    } catch (error) { notify(errorMessage(error), 'error') }
   }
 
   return (
@@ -904,7 +877,7 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
         eyebrow="Library"
         title="Instances"
         description="Separate Minecraft setups with their own content and saves."
-        actions={<button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New instance</button>}
+        actions={<div className="heading-actions"><button className="secondary" onClick={() => setShowImport(true)}><Upload size={16} /> Import</button><button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New instance</button></div>}
       />
       <div className="instance-grid">
         {instances.map((instance: Instance) => (
@@ -916,34 +889,92 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
                 <button title="Delete" className="danger-icon" onClick={(event) => { event.stopPropagation(); setPendingDelete(instance) }}><Trash2 size={16} /></button>
               </div>
             </div>
-            <h3>{instance.name}</h3>
-            <p>Minecraft {instance.minecraftVersion}</p>
+            <h3>{instance.name}</h3><p>Minecraft {instance.minecraftVersion}</p>
             <div className="badges"><span>{loaderLabel(instance.loader)}</span>{instance.customClient && <span className="gradient-badge">MegaClient</span>}</div>
-            <div className="card-footer">
-              <small>{instance.lastPlayedAt ? `Played ${new Date(instance.lastPlayedAt).toLocaleDateString('en-GB')}` : 'Not played yet'}</small>
-              {selectedId === instance.id && <span><Check size={13} /> Selected</span>}
-            </div>
+            <div className="card-footer"><small>{instance.lastPlayedAt ? `Played ${new Date(instance.lastPlayedAt).toLocaleDateString('en-GB')}` : 'Not played yet'}</small>{selectedId === instance.id && <span><Check size={13} /> Selected</span>}</div>
           </article>
         ))}
       </div>
-      {!instances.length && (
-        <div className="empty-state">
-          <Library size={34} /><h2>Your instance library is empty</h2>
-          <p>Create a normal Minecraft instance or start with the dedicated MegaClient 26.2 profile.</p>
-          <button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> Create instance</button>
-        </div>
-      )}
-      {showCreate && (
-        <CreateInstanceModal
-          settings={settings}
-          onClose={() => setShowCreate(false)}
-          onCreated={async () => { setShowCreate(false); await onChanged(); notify('Instance created.', 'success') }}
-          notify={notify}
-        />
-      )}
+      {!instances.length && <div className="empty-state"><Library size={34} /><h2>Your instance library is empty</h2><p>Create a fresh setup or bring across a Minecraft profile you already use.</p><div className="empty-actions"><button className="secondary" onClick={() => setShowImport(true)}><Upload size={16} /> Import profile</button><button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> Create instance</button></div></div>}
+      {showCreate && <CreateInstanceModal settings={settings} onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await onChanged(); notify('Instance created.', 'success') }} notify={notify} />}
+      {showImport && <ImportInstanceModal instances={instances} onClose={() => setShowImport(false)} onImported={async (result) => { setShowImport(false); await onChanged(); const copied=Number(result?.copiedFiles ?? 0); const skipped=Number(result?.skippedFiles ?? 0); notify(`Imported ${copied} file${copied===1?'':'s'}${skipped?` · ${skipped} already existed`:''}.`, 'success') }} notify={notify} />}
       {pendingDelete && <ConfirmDialog title={`Delete ${pendingDelete.name}?`} message="This removes the instance, its mods and local game files." onCancel={() => setPendingDelete(undefined)} onConfirm={() => remove(pendingDelete)} />}
     </div>
   )
+}
+
+function ImportInstanceModal({ instances, onClose, onImported, notify }: { instances: Instance[]; onClose: () => void; onImported: (result: any) => Promise<void>; notify: (message: string, kind?: ToastKind) => void }) {
+  const [preview, setPreview] = useState<ImportSourcePreview | null>(null)
+  const [mode, setMode] = useState<'new' | 'existing'>('new')
+  const [name, setName] = useState('Imported instance')
+  const [minecraftVersion, setMinecraftVersion] = useState('')
+  const [loader, setLoader] = useState<Loader>('vanilla')
+  const [loaderVersion, setLoaderVersion] = useState('')
+  const [instanceId, setInstanceId] = useState(instances[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  const [choosing, setChoosing] = useState(false)
+  const [progress, setProgress] = useState<{ message: string; progress?: number }>({ message: '' })
+
+  useEffect(() => window.mega.instances.onImportProgress(setProgress), [])
+  useEffect(() => {
+    if (!preview) return
+    setName(preview.name || 'Imported instance')
+    setMinecraftVersion(preview.minecraftVersion ?? '')
+    setLoader(preview.loader ?? 'vanilla')
+    setLoaderVersion(preview.loaderVersion ?? '')
+  }, [preview])
+
+  const choose = async (folder: boolean) => {
+    if (busy || choosing) return
+    setChoosing(true)
+    try {
+      const source = folder ? await window.mega.instances.chooseImportFolder() : await window.mega.instances.chooseImportFile()
+      if (!source) return
+      setProgress({ message: 'Checking profile…', progress: 0 })
+      setPreview(await window.mega.instances.inspectImport(source) as ImportSourcePreview)
+    } catch (error) { notify(errorMessage(error), 'error') } finally { setChoosing(false) }
+  }
+
+  const runImport = async () => {
+    if (!preview) return
+    if (mode === 'existing' && !instanceId) return notify('Choose an existing instance first.', 'error')
+    if (mode === 'new' && !name.trim()) return notify('Give the imported instance a name.', 'error')
+    if (mode === 'new' && !minecraftVersion.trim()) return notify('Enter the Minecraft version for this profile.', 'error')
+    if (mode === 'new' && loader !== 'vanilla' && !loaderVersion.trim()) return notify(`Enter the ${loaderLabel(loader)} loader version.`, 'error')
+    setBusy(true); setProgress({ message: 'Preparing import…', progress: 0.01 })
+    try {
+      const result = await window.mega.instances.importSetup({ sourcePath: preview.sourcePath, mode, instanceId: mode === 'existing' ? instanceId : undefined, name: mode === 'new' ? name.trim() : undefined, minecraftVersion: mode === 'new' ? minecraftVersion.trim() : undefined, loader: mode === 'new' ? loader : undefined, loaderVersion: mode === 'new' && loader !== 'vanilla' ? loaderVersion.trim() : undefined })
+      if (result?.warnings?.length) notify(result.warnings[0], 'warning')
+      await onImported(result)
+    } catch (error) { notify(errorMessage(error), 'error') } finally { setBusy(false) }
+  }
+
+  const content=preview?.content
+  const total=content ? content.mods+content.resourcePacks+content.shaders+content.worlds+content.configurationFiles+content.otherFiles : 0
+  const instanceOptions: SelectMenuOption[]=instances.map((instance)=>({value:instance.id,label:instance.name,description:`Minecraft ${instance.minecraftVersion} · ${loaderLabel(instance.loader)}`}))
+  const loaderOptions: SelectMenuOption[]=[{value:'vanilla',label:'Vanilla',description:'No mod loader'},{value:'fabric',label:'Fabric',description:'Fabric mod loader'},{value:'forge',label:'Forge',description:'Forge mod loader'},{value:'neoforge',label:'NeoForge',description:'NeoForge mod loader'}]
+
+  return <div className="modal-backdrop" onPointerDown={busy ? undefined : onClose}>
+    <div className="modal import-instance-modal" onPointerDown={(event)=>event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="import-instance-title">
+      <div className="modal-header"><div><small>IMPORT</small><h2 id="import-instance-title">Bring your Minecraft setup</h2></div><button type="button" aria-label="Close import" onClick={onClose} disabled={busy}><X /></button></div>
+      {!preview ? <div className="import-source-step">
+        <p>Move compatible mods, configuration, resource packs, shaders, worlds and profile settings into MegaClient.</p>
+        <div className="import-source-grid">
+          <button type="button" onClick={()=>void choose(false)} disabled={choosing}><PackagePlus /><span><strong>Profile or pack</strong><small>Modrinth .mrpack, Lunar .dawnpack, CurseForge ZIP or another archive</small></span><ChevronRight /></button>
+          <button type="button" onClick={()=>void choose(true)} disabled={choosing}><FolderOpen /><span><strong>Installed profile folder</strong><small>Lunar, CurseForge, Prism / MultiMC or a normal Minecraft profile</small></span><ChevronRight /></button>
+        </div>
+        <div className="import-note"><Info size={15}/><span>Accounts, launcher credentials and launcher-only cosmetics are never imported.</span></div>
+      </div> : <>
+        <div className="import-summary"><div className="import-source-icon"><Upload size={20}/></div><div className="import-source-copy"><small>{preview.sourceLabel}</small><strong>{preview.name}</strong><span title={preview.sourcePath}>{preview.sourcePath}</span></div><button className="text-button" type="button" onClick={()=>setPreview(null)} disabled={busy}>Change</button></div>
+        <div className="import-counts"><span><strong>{content?.mods??0}</strong><small>Mods</small></span><span><strong>{content?.resourcePacks??0}</strong><small>Packs</small></span><span><strong>{content?.shaders??0}</strong><small>Shaders</small></span><span><strong>{content?.worlds??0}</strong><small>Worlds</small></span><span><strong>{content?.configurationFiles??0}</strong><small>Config</small></span><span><strong>{total}</strong><small>Detected</small></span></div>
+        {preview.warnings.map((warning,index)=><div className="field-message warning" key={`${warning}-${index}`}><AlertTriangle size={15}/><span>{warning}</span></div>)}
+        <div className="segmented import-target"><button type="button" className={mode==='new'?'active':''} onClick={()=>setMode('new')} disabled={busy}>New instance</button><button type="button" className={mode==='existing'?'active':''} onClick={()=>setMode('existing')} disabled={busy||!instances.length}>Existing instance</button></div>
+        {mode==='new' ? <div className="import-form"><label className="field-label">Instance name<input value={name} onChange={(e)=>setName(e.target.value)} maxLength={48} disabled={busy}/></label><div className="form-grid"><label className="field-label">Minecraft version<input value={minecraftVersion} onChange={(e)=>setMinecraftVersion(e.target.value)} placeholder="e.g. 1.21.8" disabled={busy}/></label><label className="field-label">Loader<SelectMenu value={loader} options={loaderOptions} onChange={(value)=>setLoader(value as Loader)} ariaLabel="Imported profile loader" disabled={busy}/></label></div>{loader!=='vanilla'&&<label className="field-label">Loader version<input value={loaderVersion} onChange={(e)=>setLoaderVersion(e.target.value)} placeholder={`Required ${loaderLabel(loader)} version`} disabled={busy}/></label>}</div> : <label className="field-label">Import into<SelectMenu value={instanceId} options={instanceOptions} onChange={setInstanceId} ariaLabel="Existing instance" disabled={busy} emptyLabel="Create an instance first"/></label>}
+        {busy&&<div className="import-progress"><div><strong>{progress.message||'Importing profile…'}</strong><span>{Math.round(Math.max(0,Math.min(1,progress.progress??0))*100)}%</span></div><div className="progress"><i style={{width:`${Math.max(3,Math.min(100,(progress.progress??0)*100))}%`}}/></div><small>MegaClient keeps the interface responsive while files are copied.</small></div>}
+      </>}
+      <div className="modal-footer"><button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancel</button>{preview&&<button type="button" className="primary" onClick={()=>void runImport()} disabled={busy}>{busy?<RefreshCw className="spin"/>:<Upload/>}{busy?'Importing…':'Import profile'}</button>}</div>
+    </div>
+  </div>
 }
 
 interface SelectMenuOption {
@@ -1534,7 +1565,7 @@ function ModsManager({ selected, notify }: { selected?: Instance; notify: (messa
         {loading && !mods.length && <LoadingRows count={4} compact />}
         {mods.map((mod) => (
           <div className={`mod-row ${!mod.enabled ? 'disabled' : ''}`} key={mod.fileName}>
-            <div className="mod-name"><div>{mod.iconUrl ? <img src={mod.iconUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : <Box />}</div><span><strong>{mod.title}</strong><small>{mod.fileName}</small></span></div>
+            <div className="mod-name"><div>{mod.iconUrl ? <img src={mod.iconUrl} alt="" loading="lazy" /> : <Box />}</div><span><strong>{mod.title}</strong><small>{mod.fileName}</small></span></div>
             <span>{mod.versionNumber ?? 'Local file'}</span>
             <span className="source-tag">{mod.source === 'modrinth' ? 'Modrinth' : 'Local'}</span>
             <button className={`toggle ${mod.enabled ? 'on' : ''}`} aria-label={mod.enabled ? `Disable ${mod.title}` : `Enable ${mod.title}`} onClick={() => toggle(mod)}><i /></button>
@@ -1597,7 +1628,7 @@ function PacksManager({ selected, type, notify }: { selected?: Instance; type: '
       <div className="pack-grid">
         {packs.map((pack) => (
           <article className={`pack-card ${pack.enabled ? '' : 'disabled'}`} key={`${pack.contentType}:${pack.fileName}`}>
-            <div className="pack-icon">{pack.iconUrl ? <img src={pack.iconUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : type === 'resourcepack' ? <Image /> : <Sparkles />}</div>
+            <div className="pack-icon">{pack.iconUrl ? <img src={pack.iconUrl} alt="" loading="lazy" /> : type === 'resourcepack' ? <Image /> : <Sparkles />}</div>
             <div className="pack-copy"><h3>{pack.title}</h3><p>{pack.versionNumber ?? 'Local file'}</p></div>
             <button className={`toggle ${pack.enabled ? 'on' : ''}`} aria-label={pack.enabled ? 'Disable' : 'Enable'} onClick={() => toggle(pack)}><i /></button>
             <button className="icon-button danger-icon" title="Remove" onClick={() => setPendingRemove(pack)}><Trash2 size={16} /></button>
@@ -1765,7 +1796,7 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
           return (
             <article className={`server-card live-server-card ${status?.online ? 'online' : status ? 'offline' : 'loading'}`} key={server.id}>
               <div className="server-art">
-                {status?.icon ? <img src={status.icon} alt={`${server.name} server icon`} loading="lazy" decoding="async" /> : <Server size={42} />}
+                {status?.icon ? <img src={status.icon} alt={`${server.name} server icon`} /> : <Server size={42} />}
                 <span>{status?.online ? 'Online' : status ? 'Offline' : 'Checking'}</span>
               </div>
               <div className="server-copy">

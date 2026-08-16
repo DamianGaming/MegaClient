@@ -17,7 +17,7 @@ const defaultSettings: LauncherSettings = {
   javaPath: '',
   checkUpdates: true,
   discordActivity: true,
-  reducedMotion: false
+  reducedMotion: true
 }
 
 const defaultData: StoredData = { settings: defaultSettings, instances: [] }

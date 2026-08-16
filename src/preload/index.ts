@@ -30,6 +30,11 @@ const api = {
       ipcRenderer.on('updates:event', listener)
       return () => ipcRenderer.removeListener('updates:event', listener)
     },
+    onPerformanceMode: (callback: (active: boolean) => void) => {
+      const listener = (_: unknown, active: boolean) => callback(Boolean(active))
+      ipcRenderer.on('launcher:performance-mode', listener)
+      return () => ipcRenderer.removeListener('launcher:performance-mode', listener)
+    },
     onSplashProgress: (callback: (event: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => void) => {
       const listener = (_: unknown, payload: { value: number; message: string; detail?: string; launcherVersion?: string; clientVersion?: string }) => callback(payload)
       ipcRenderer.on('splash:progress', listener)
@@ -50,6 +55,15 @@ const api = {
     setCape: (capeId?: string) => ipcRenderer.invoke('account:set-cape', capeId)
   },
   instances: {
+    chooseImportFile: () => ipcRenderer.invoke('instances:choose-import-file'),
+    chooseImportFolder: () => ipcRenderer.invoke('instances:choose-import-folder'),
+    inspectImport: (sourcePath: string) => ipcRenderer.invoke('instances:inspect-import', sourcePath),
+    importSetup: (input: unknown) => ipcRenderer.invoke('instances:import', input),
+    onImportProgress: (callback: (event: { message: string; progress?: number }) => void) => {
+      const listener = (_: unknown, payload: { message: string; progress?: number }) => callback(payload)
+      ipcRenderer.on('instances:import-progress', listener)
+      return () => ipcRenderer.removeListener('instances:import-progress', listener)
+    },
     create: (input: unknown) => ipcRenderer.invoke('instances:create', input),
     update: (id: string, patch: unknown) => ipcRenderer.invoke('instances:update', id, patch),
     delete: (id: string) => ipcRenderer.invoke('instances:delete', id),
@@ -116,11 +130,6 @@ const api = {
       const listener = (_: unknown, payload: unknown) => callback(payload)
       ipcRenderer.on('launch:closed', listener)
       return () => ipcRenderer.removeListener('launch:closed', listener)
-    },
-    onPerformance: (callback: (event: { active: boolean }) => void) => {
-      const listener = (_: unknown, payload: { active: boolean }) => callback(payload)
-      ipcRenderer.on('launch:performance', listener)
-      return () => ipcRenderer.removeListener('launch:performance', listener)
     }
   }
 }

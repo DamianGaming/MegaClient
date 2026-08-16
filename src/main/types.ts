@@ -17,6 +17,43 @@ export interface LauncherInstance {
   modpack?: { projectId: string; versionId: string; title: string }
 }
 
+
+export type ImportSourceKind = 'curseforge' | 'modrinth' | 'lunar' | 'prism' | 'minecraft' | 'generic'
+
+export interface ImportSourcePreview {
+  sourcePath: string
+  kind: ImportSourceKind
+  sourceLabel: string
+  name: string
+  minecraftVersion?: string
+  loader?: LoaderType
+  loaderVersion?: string
+  unsupportedLoader?: string
+  content: { mods: number; resourcePacks: number; shaders: number; worlds: number; configurationFiles: number; otherFiles: number }
+  warnings: string[]
+  referencedRemoteMods?: number
+  contentRoot?: string
+}
+
+export interface ImportRequest {
+  sourcePath: string
+  mode: 'new' | 'existing'
+  instanceId?: string
+  name?: string
+  minecraftVersion?: string
+  loader?: LoaderType
+  loaderVersion?: string
+}
+
+export interface ImportResult {
+  instance: LauncherInstance
+  copiedFiles: number
+  skippedFiles: number
+  warnings: string[]
+}
+
+export interface ImportProgress { message: string; progress?: number }
+
 export interface LauncherSettings {
   memoryMin: number
   memoryMax: number
