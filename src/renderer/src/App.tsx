@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   AlertTriangle,
   Box,
@@ -44,7 +44,8 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import Skin3DPreview from './Skin3DPreview'
+// Keep the canvas renderer out of the initial launcher bundle until cosmetics opens.
+const Skin3DPreview = lazy(() => import('./Skin3DPreview'))
 
 type Tab = 'home' | 'instances' | 'browse' | 'manage' | 'servers' | 'cosmetics' | 'settings'
 type Loader = 'vanilla' | 'forge' | 'neoforge' | 'fabric'
@@ -270,7 +271,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.10.0')
+  const [version, setVersion] = useState('1.11.0')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -368,11 +369,38 @@ function App() {
     const timer = window.setInterval(() => setBootElapsed(Math.floor((Date.now() - bootStartedAt.current) / 1000)), 1000)
     return () => window.clearInterval(timer)
   }, [booting])
-  useEffect(() => window.mega.launchEvents.onProgress((event) => {
-    setLaunching(true)
-    setLaunchProgress(event)
-  }), [])
+  const progressTimer = useRef<number | null>(null)
+  const queuedLaunchProgress = useRef<Parameters<Parameters<typeof window.mega.launchEvents.onProgress>[0]>[0] | null>(null)
+  const progressLastAppliedAt = useRef(0)
+  useEffect(() => {
+    const applyQueued = () => {
+      progressTimer.current = null
+      const current = queuedLaunchProgress.current
+      queuedLaunchProgress.current = null
+      if (current) {
+        progressLastAppliedAt.current = Date.now()
+        setLaunching(true)
+        setLaunchProgress(current)
+      }
+    }
+    const dispose = window.mega.launchEvents.onProgress((event) => {
+      queuedLaunchProgress.current = event
+      if (progressTimer.current !== null) return
+      const interval = document.hidden ? 400 : 110
+      const delay = Math.max(0, interval - (Date.now() - progressLastAppliedAt.current))
+      progressTimer.current = window.setTimeout(applyQueued, delay)
+    })
+    return () => {
+      if (progressTimer.current !== null) window.clearTimeout(progressTimer.current)
+      progressTimer.current = null
+      queuedLaunchProgress.current = null
+      dispose()
+    }
+  }, [])
   useEffect(() => window.mega.launchEvents.onError((event) => {
+    if (progressTimer.current !== null) window.clearTimeout(progressTimer.current)
+    progressTimer.current = null
+    queuedLaunchProgress.current = null
     setLaunching(false)
     notify(event.message ?? 'Minecraft failed to launch.', 'error')
   }), [notify])
@@ -380,6 +408,9 @@ function App() {
     notify(event.message ?? 'Minecraft launched with a warning.', 'warning')
   }), [notify])
   useEffect(() => window.mega.launchEvents.onClosed(() => {
+    if (progressTimer.current !== null) window.clearTimeout(progressTimer.current)
+    progressTimer.current = null
+    queuedLaunchProgress.current = null
     setLaunching(false)
     setLaunchProgress({ message: '' })
     void bootstrap()
@@ -478,9 +509,10 @@ function App() {
           <img src="./logo.png" alt="MegaClient" />
           <span><strong>MegaClient</strong><small>MegaStudios</small></span>
         </button>
-        <nav>
+        <div className="sidebar-section-label">YOUR LAUNCHER</div>
+        <nav aria-label="Launcher navigation">
           {navItems.map((item) => (
-            <button key={item.id} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
+            <button key={item.id} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
               <item.icon size={18} />
               <span>{item.label}</span>
             </button>
@@ -498,7 +530,7 @@ function App() {
             <span><strong>{account.name}</strong><small>Microsoft account</small></span>
             <ChevronDown size={15} />
           </button>
-          <div className="version-line">MegaClient v{version}</div>
+          <div className="version-line"><span className="online-dot" />MegaClient {version} · Client {clientVersion}</div>
         </div>
       </aside>
 
@@ -802,18 +834,25 @@ function HomeView({ selected, launching, progress, clientVersion, onLaunch, onIn
     <div className="page home-page">
       <section className="hero-card">
         <div className="hero-copy">
-          <span className="pill"><Zap size={14} /> Fast, isolated and protected</span>
-          <h1>Play Minecraft<br /><em>your way.</em></h1>
-          <p>Launch Vanilla, modded Minecraft or the dedicated MegaClient 26.2 profile from one clean library.</p>
+          <span className="hero-kicker"><span className="online-dot" /> YOUR MINECRAFT LAUNCHER</span>
+          <h1>Ready when you are.</h1>
+          <p>Your favourite Minecraft versions, mods and worlds — organised in one place.</p>
           <div className="hero-actions">
             <button className="primary large" onClick={onLaunch} disabled={launching || !selected}>
-              {launching ? <RefreshCw className="spin" size={18} /> : <Play fill="currentColor" size={18} />}
-              {launching ? 'Launching…' : 'Play'}
+              {launching ? <RefreshCw className="spin" size={18} /> : <Play fill="currentColor" size={17} />}
+              {launching ? 'Preparing Minecraft' : 'Launch Minecraft'}
             </button>
-            <button className="secondary large" onClick={onInstances}><Library size={18} /> Instances</button>
+            <button className="secondary large" onClick={onInstances}><Library size={17} /> My instances</button>
           </div>
         </div>
-        <div className="hero-mark"><div className="orbit one" /><div className="orbit two" /><img src="./logo.png" alt="" /></div>
+        <div className="hero-overview">
+          <span className="hero-overview-kicker">SELECTED PROFILE</span>
+          <div className="hero-overview-profile">
+            <div className="hero-overview-icon">{selected?.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={24} />}</div>
+            <div><strong>{selected?.name ?? 'No profile selected'}</strong><small>{selected ? `Minecraft ${selected.minecraftVersion} · ${loaderLabel(selected.loader)}` : 'Create an instance to get started'}</small></div>
+          </div>
+          <div className="hero-overview-footer"><span>{selected?.customClient ? `MegaClient ${clientVersion}` : selected?.loaderVersion ? `${loaderLabel(selected.loader)} ${selected.loaderVersion}` : 'Vanilla Minecraft'}</span><span className="hero-ready"><span className="online-dot" /> {launching ? 'Preparing' : 'Ready'}</span></div>
+        </div>
       </section>
 
       <div className="home-grid">
@@ -1909,7 +1948,9 @@ function CosmeticsView({ account, notify }: {
         <section className="panel skin-panel clean-skin-panel">
           <div className="panel-title"><span>3D preview</span><button title="Refresh profile" disabled={loading} onClick={() => load(true)}><RefreshCw className={loading ? 'spin' : ''} size={15} /></button></div>
           <div className="skin-preview interactive-preview real-3d-preview">
-            <Skin3DPreview skinUrl={skinUrl} capeUrl={capeUrl} slim={(activeSkin?.variant ?? variant) === 'slim'} loading={loading} />
+            <Suspense fallback={<div className="skin3d-loading">Preparing character preview…</div>}>
+              <Skin3DPreview skinUrl={skinUrl} capeUrl={capeUrl} slim={(activeSkin?.variant ?? variant) === 'slim'} loading={loading} />
+            </Suspense>
             {activeSkin && <span className="skin-variant-chip">{activeSkin.variant === 'slim' ? 'Slim arms' : 'Classic arms'}</span>}
             {activeCape && <span className="active-cape-chip"><Sparkles size={12} /> {activeCape.alias}</span>}
           </div>

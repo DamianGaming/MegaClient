@@ -1,0 +1,182 @@
+/* MegaClient 1.11.0 · Nova interface
+   Quiet, flat surfaces; no backdrop blur, simulated glow, or idle GPU motion.
+   Layout behaviour from styles.css is intentionally preserved across all pages. */
+:root {
+  font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  font-synthesis: none;
+  --bg: #0d1119;
+  --panel: #161d28;
+  --panel2: #1a2330;
+  --line: #2b3646;
+  --soft: #e0e7f2;
+  --muted: #9baabd;
+  --pink: #85acf1;
+  --violet: #86aef4;
+  --blue: #8db5f5;
+  --radius: 13px;
+  --mc-surface: #161d28;
+  --mc-border: #2a3545;
+  --mc-muted: #9baabd;
+  --text-main: #f0f5fd;
+  --text-body: #c4cfdd;
+  --text-muted: #a1afbf;
+  --text-faint: #8594a8;
+  background-color: #0d1119;
+  color: #eff3fb;
+}
+html, body, #root { background: #0d1119 !important; color: #eff3fb; }
+body { -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font-family: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #95b9fa; outline-offset: 2px; }
+button, a { touch-action: manipulation; }
+/* Animation deliberately limited to short opacity and colour transitions. */
+.app-shell { grid-template-columns: 218px minmax(0, 1fr) !important; background: #0d1119 !important; animation: none !important; }
+.titlebar { height: 35px; background: #0b0f16 !important; border-bottom: 1px solid #222c3a !important; }
+.titlebar .window-buttons button { color: #a3b0c0; }
+.titlebar .window-buttons button:hover { background: #202937; }
+.sidebar { background: #111722 !important; border-right: 1px solid #253143 !important; padding: 16px 12px !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.brand { height: 61px; padding: 8px 10px !important; border-radius: 12px !important; }
+.brand:hover { background: #1c2532 !important; }
+.brand img { width: 39px !important; height: 39px !important; filter: none !important; }
+.brand strong { font-size: 15px !important; letter-spacing: -.25px !important; font-weight: 750; }
+.brand small { font-size: 10px !important; font-weight: 600; letter-spacing: .2px !important; text-transform: none !important; color: #8ea2bb !important; }
+.sidebar-section-label { padding: 22px 13px 7px; font-size: 10px; font-weight: 730; letter-spacing: 1.05px; color: #7f91a8; user-select: none; }
+.sidebar nav { margin-top: 0 !important; gap: 3px !important; scrollbar-width: thin !important; }
+.sidebar nav button { height: 42px !important; border-radius: 10px !important; padding: 0 12px !important; font-size: 13px !important; font-weight: 585 !important; color: #9faec0 !important; gap: 12px !important; transition: color .13s ease, background-color .13s ease !important; }
+.sidebar nav button svg { flex: 0 0 auto; }
+.sidebar nav button:hover { background: #1d2633 !important; color: #f3f6fc !important; }
+.sidebar nav button.active, .sidebar nav button[aria-current="page"] { background: #253348 !important; box-shadow: none !important; color: #f1f6ff !important; }
+.sidebar nav button.active svg { color: #93b9f6 !important; }
+.sidebar-bottom { border-top: 1px solid #273344; padding-top: 14px; }
+.account-mini, .sign-in-mini { background: #1a2430 !important; border: 1px solid #303e50 !important; border-radius: 11px !important; }
+.account-mini:hover, .sign-in-mini:hover { border-color: #517099 !important; }
+.account-menu { background: #1b2430 !important; border: 1px solid #364456 !important; box-shadow: 0 12px 28px rgba(0,0,0,.22) !important; }
+.account-menu button { font-size: 12px !important; }
+.account-menu button:hover { background: #273344 !important; }
+.account-mini strong { font-size: 12px !important; }
+.account-mini small { font-size: 10px !important; }
+.version-line { justify-content: flex-start !important; padding: 4px 5px 0; color: #8998ad !important; font-size: 10px !important; gap: 8px !important; }
+.online-dot { width: 7px; height: 7px; display: inline-block; flex: 0 0 7px; border-radius: 100%; background: #76c7a8; box-shadow: none; }
+.content { min-width: 0; scrollbar-width: thin; scrollbar-color: #344459 transparent; background: #0d1119; }
+.page { padding: 29px 34px 48px !important; max-width: 1400px !important; }
+.page-heading { margin-bottom: 25px !important; align-items: center !important; }
+.page-heading small { color: #93b8f7 !important; letter-spacing: 1px !important; font-size: 10px !important; }
+.page-heading h1 { color: #f1f6fd !important; font-size: clamp(25px,2.3vw,31px) !important; letter-spacing: -.85px !important; font-weight: 720; }
+.page-heading p { color: #a2b0c3 !important; font-size: 13px !important; line-height: 1.55 !important; }
+/* Compact hero replaces the old animated logo showcase. */
+.hero-card { display: grid !important; grid-template-columns: minmax(0,1fr) minmax(250px, .68fr) !important; align-items: center !important; gap: 32px !important; padding: 28px 30px !important; min-height: 244px !important; background: #182230 !important; border: 1px solid #2d3d52 !important; border-radius: 16px !important; box-shadow: none !important; }
+.hero-copy { padding: 0 !important; min-width: 0; }
+.hero-kicker { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: 1.2px; color: #a6bad4; font-weight: 700; }
+.hero-copy h1 { font-size: clamp(30px,3.2vw,43px) !important; font-weight: 730 !important; letter-spacing: -1.6px !important; line-height: 1.1 !important; margin: 16px 0 11px !important; color: #f2f6fd; }
+.hero-copy p { max-width: 430px !important; line-height: 1.55 !important; font-size: 13px !important; margin-bottom: 24px !important; color: #a9b7c9 !important; }
+.hero-actions { display: flex; gap: 10px !important; align-items: center; flex-wrap: wrap; }
+.hero-overview { border: 1px solid #324154; background: #141d2a; padding: 20px 19px 16px; border-radius: 13px; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; }
+.hero-overview-kicker { font-size: 10px; font-weight: 750; color: #91a8c2; letter-spacing: 1.1px; }
+.hero-overview-profile { display: flex; align-items: center; gap: 13px; min-width: 0; margin: 20px 0; }
+.hero-overview-icon { flex: 0 0 49px; width: 49px; height: 49px; background: #233247; border: 1px solid #34475e; border-radius: 12px; display: grid; place-items: center; color: #99b8ec; }
+.hero-overview-icon img { width: 35px; height: 35px; object-fit: contain; }
+.hero-overview-profile>div:last-child { min-width: 0; display: grid; gap: 5px; }
+.hero-overview-profile strong { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-overview-profile small { font-size: 11px; color: #9aaec5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-overview-footer { border-top: 1px solid #2b3b4f; padding-top: 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 9px; color: #a3b4c9; font-size: 11px; }
+.hero-ready { display: inline-flex; align-items: center; gap: 7px; font-weight: 670; color: #c2ead7; }
+.home-grid { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(280px, .78fr) !important; margin-top: 17px !important; gap: 17px !important; }
+.panel, .instance-card, .content-card, .server-card, .world-card, .mod-row, .pack-card, .settings-card, .account-card, .status-panel, .download-card { background: #151c27 !important; border: 1px solid #293649 !important; box-shadow: none !important; border-radius: 13px !important; }
+.panel { padding: 20px !important; }
+.panel-title { font-size: 12px !important; font-weight: 710 !important; color: #e9eff9 !important; margin-bottom: 17px !important; }
+.instance-feature { gap: 13px !important; }
+.instance-feature h3 { font-size: 16px !important; font-weight: 710 !important; }
+.instance-feature p { font-size: 12px !important; color: #a4b2c3 !important; }
+.instance-icon { background: #253248 !important; color: #a5c0f0 !important; }
+.instance-meta { border-color: #2b3a4f !important; }
+.status-dot { color: #bcd6ec !important; }
+.shortcut-list { gap: 8px !important; }
+.shortcut-list button { min-height: 63px !important; background: #1b2532 !important; border: 1px solid #2e3c4f !important; border-radius: 10px !important; }
+.shortcut-list button:hover { background: #263447 !important; border-color: #405675 !important; transform: none !important; }
+.shortcut-list button>svg:first-child { color: #9bbcf4 !important; }
+.shortcut-list strong { color: #e8eff9 !important; font-size: 12px !important; }
+.shortcut-list small { font-size: 11px !important; color: #9cafc4 !important; }
+.primary, .secondary, .ghost-button, .danger-button { border-radius: 9px !important; box-shadow: none !important; font-size: 12px !important; font-weight: 690 !important; transition: color .13s ease, background-color .13s ease, border-color .13s ease, opacity .13s ease !important; }
+.primary { background: #90b9f6 !important; color: #101c2e !important; border: 1px solid #a3c7fb !important; }
+.primary:hover:not(:disabled) { background: #b0d0ff !important; color: #101c2e !important; transform: none !important; filter: none !important; }
+.secondary, .ghost-button { background: #202b3a !important; color: #e0eafa !important; border: 1px solid #36475e !important; }
+.secondary:hover:not(:disabled), .ghost-button:hover:not(:disabled) { background: #2a394c !important; border-color: #506585 !important; transform: none !important; }
+.primary:disabled, .secondary:disabled { opacity: .48; cursor: not-allowed; }
+.page-heading .heading-actions, .toolbar, .filter-tabs, .discover-types { gap: 8px !important; }
+/* Consistent inputs and compact controls throughout content/instances/cosmetics. */
+input:not([type="checkbox"]), textarea, select, .select-trigger, .search-box { background: #1c2634 !important; border: 1px solid #35445a !important; border-radius: 9px !important; color: #eef4fd !important; box-shadow: none !important; }
+input::placeholder, textarea::placeholder { color: #8294a9 !important; }
+input:focus, textarea:focus, select:focus, .select-trigger:focus-visible { border-color: #8ab4fb !important; }
+.select-popover, .select-options, .dropdown-menu { background: #192230 !important; border-color: #34475e !important; box-shadow: 0 12px 30px rgba(0,0,0,.22) !important; }
+.select-option:hover, .select-option.active { background: #26374d !important; }
+.instance-card:hover, .content-card:hover, .mod-row:hover, .server-card:hover, .world-card:hover, .pack-card:hover { border-color: #425671 !important; transform: none !important; }
+.instance-card.selected { border-color: #87b0f6 !important; box-shadow: inset 0 0 0 1px rgba(135,176,246,.16) !important; }
+.pill, .tag, .badge, .locked-chip, .status-chip { background: #25354a !important; color: #b3cffd !important; box-shadow: none !important; }
+.update-banner, .activity-banner { background: #1b2b3d !important; border: 1px solid #375170 !important; box-shadow: none !important; color: #e1eefa !important; }
+.progress, .activity-progress { background: #2c3a4c !important; }
+.progress i, .activity-progress i, .banner-progress i, .splash-progress i { background: #90b9f6 !important; box-shadow: none !important; transition: width .16s ease-out !important; }
+.modal-backdrop { background: rgba(4, 8, 13, .78) !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.modal, .confirm-dialog, .create-instance-modal, .import-instance-modal { background: #171f2b !important; border: 1px solid #3a4961 !important; box-shadow: 0 20px 48px rgba(0,0,0,.32) !important; border-radius: 14px !important; }
+.form-hint, .field-label, .modal-subtitle { color: #a7b8cd !important; }
+.toast { background: #1c2939 !important; border-color: #3b536e !important; box-shadow: 0 14px 28px rgba(0,0,0,.22) !important; }
+.import-source-grid>button, .import-summary { background: #1b2635 !important; border-color: #35475c !important; }
+.import-source-grid>button:hover { background: #27384c !important; }
+/* Keep the separate splash and login screens simple, using matching surfaces. */
+.separate-splash, .login-page, .login-screen, .startup-view, .startup-failure { background: #0d1119 !important; }
+.separate-splash .splash-surface, .login-card, .startup-card { background: #17202d !important; border: 1px solid #334257 !important; box-shadow: 0 18px 44px rgba(0,0,0,.25) !important; }
+.separate-splash .splash-mark, .login-logo { background: #243248 !important; box-shadow: none !important; }
+.separate-splash .splash-mark img, .login-logo img { animation: none !important; filter: none !important; }
+.separate-splash .splash-ambient, .separate-splash::before, .hero-mark, .orbit { display: none !important; }
+.separate-splash .splash-surface { animation: mc-enter .18s ease-out both !important; }
+.separate-splash.is-leaving .splash-surface { animation: mc-exit .20s ease-in both !important; }
+@keyframes mc-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes mc-exit { to { opacity: 0; transform: translateY(-2px); } }
+/* Avoid a compositor layer for each item in large content lists. */
+.instance-card, .content-card, .mod-row, .cape-list>button, .server-card, .pack-card, .world-card { will-change: auto !important; transform: none !important; filter: none !important; }
+.content-card, .mod-row { contain: layout style paint !important; }
+.content-list .content-card, .results-list .content-card, .mods-list .mod-row, .mod-list .mod-row { content-visibility: auto; contain-intrinsic-size: auto 80px; }
+.sidebar nav, .content { overscroll-behavior: contain; }
+/* No recurring cosmetic motion. Progress indicators alone may animate. */
+.loading-row::after, .status-dot.working::before { animation: none !important; }
+.spin { animation-duration: 1.25s !important; }
+html[data-game-performance="true"] .spin, html[data-reduced-motion="true"] .spin { animation: none !important; }
+html[data-game-performance="true"] *, html[data-reduced-motion="true"] * { scroll-behavior: auto !important; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+}
+@media (max-width: 1130px) {
+  .page { padding: 24px 25px 40px !important; }
+  .hero-card { grid-template-columns: 1fr !important; gap: 17px !important; }
+  .hero-overview { min-height: 112px; }
+  .hero-overview-profile { margin: 12px 0; }
+  .home-grid { grid-template-columns: 1fr 1fr !important; }
+}
+@media (max-width: 820px) {
+  .app-shell { grid-template-columns: 75px minmax(0, 1fr) !important; }
+  .sidebar { padding: 12px 8px !important; }
+  .brand { justify-content: center; }
+  .brand span, .sidebar-section-label, .sidebar nav span, .sidebar-bottom .account-mini span, .sidebar-bottom .account-mini>svg, .version-line { display: none !important; }
+  .sidebar nav button { justify-content: center; padding: 0 !important; }
+  .account-mini { justify-content: center; }
+  .sidebar-bottom .account-mini img { margin: 0; }
+  .account-menu { width: 180px; left: 6px; right: auto; }
+  .home-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 590px) {
+  .page { padding: 19px 15px 32px !important; }
+  .hero-card { padding: 21px !important; }
+  .hero-copy h1 { font-size: 29px !important; }
+  .page-heading { flex-wrap: wrap; }
+  .hero-overview-footer { flex-direction: column; }
+}
+
+/* Unified management, selection and loading surfaces. */
+.manage-surface, .create-instance-modal, .settings-group, .manager-section, .cosmetic-panel { background: #151d29 !important; border-color: #2d3a4e !important; box-shadow: none !important; }
+.manager-heading h2, .settings-title h2 { color: #eef4fc !important; }
+.manager-heading p, .settings-title p { color: #9eafc3 !important; }
+.manage-tabs button.active, .segmented button.active, .filter-tabs button.active { background: #2a3a50 !important; color: #dceaff !important; box-shadow: none !important; }
+.manage-tabs button:hover, .segmented button:hover, .filter-tabs button:hover { background-color: #253349 !important; }
+.skin3d-loading { min-height: 240px; display: grid; place-items: center; color: #a9bbd0; font-size: 13px; background: #172230; border: 1px solid #2d3e52; border-radius: 12px; }
+.content { will-change: auto !important; scrollbar-color: #3a4a60 transparent !important; }
+.splash-ambient, .hero-mark, .orbit, .loading-row::after { animation: none !important; }

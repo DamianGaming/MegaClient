@@ -2,16 +2,19 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 
-const USER_AGENT = 'MegaClient/1.10.0 (MegaStudios Minecraft Launcher)'
+const USER_AGENT = 'MegaClient/1.11.0 (MegaStudios Minecraft Launcher)'
 const jsonRequests = new Map<string, Promise<unknown>>()
 
 export async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  // Preserve caller cancellation (e.g. when an instance import is stopped)
+  // while still enforcing the launcher's own request timeout.
+  const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal
   try {
     const response = await fetch(url, {
       ...init,
-      signal: controller.signal,
+      signal,
       redirect: 'follow',
       headers: { 'User-Agent': USER_AGENT, ...(init.headers ?? {}) }
     })
@@ -21,6 +24,7 @@ export async function fetchWithTimeout(url: string, init: RequestInit = {}, time
     }
     return response
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError' && init.signal?.aborted) throw new Error('The download or request was cancelled.')
     if (error instanceof Error && error.name === 'AbortError') throw new Error('The request timed out. Please try again.')
     throw error
   } finally {
@@ -61,6 +65,7 @@ export async function downloadFile(
   const temp = `${destination}.${process.pid}.${Date.now()}.download`
   const handle = await fs.open(temp, 'wx')
   let downloaded = 0
+  let lastProgressEmittedAt = 0
   try {
     const reader = body.getReader()
     while (true) {
@@ -72,9 +77,20 @@ export async function downloadFile(
         await reader.cancel().catch(() => undefined)
         throw new Error('The download exceeded MegaClient’s safe size limit.')
       }
-      await handle.write(value)
-      onProgress?.(downloaded, total)
+      let offset = 0
+      while (offset < value.byteLength) {
+        const { bytesWritten } = await handle.write(value, offset, value.byteLength - offset)
+        if (bytesWritten < 1) throw new Error('The download stopped writing to disk.')
+        offset += bytesWritten
+      }
+      // Rate-limit UI progress for large downloads to avoid thousands of IPC
+      // updates while mods and assets are installing. Completion always fires.
+      if (onProgress && Date.now() - lastProgressEmittedAt >= 140) {
+        lastProgressEmittedAt = Date.now()
+        onProgress(downloaded, total)
+      }
     }
+    onProgress?.(downloaded, total)
     await handle.sync()
   } catch (error) {
     await handle.close().catch(() => undefined)

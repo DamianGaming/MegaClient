@@ -248,7 +248,7 @@ small{color:inherit}
 .modal-footer .primary{color:#fff}
 
 /* Keep expensive effects off continuously scrolling content. */
-.instance-card,.content-card,.mod-row,.cape-list>button{transform:translateZ(0)}
+.instance-card,.content-card,.mod-row,.cape-list>button{transform:none}
 .content-card,.mod-row{contain:layout paint style}
 @media(max-height:760px){.create-instance-modal{max-height:calc(100vh - 56px);overflow-y:auto;overflow-x:visible}.select-options{max-height:190px}}
 @media(max-width:760px){.modal-backdrop{inset:34px 0 0 0}.create-instance-modal{overflow-y:auto}.form-grid{grid-template-columns:1fr}.choice-row{grid-template-columns:1fr}.select-popover{position:relative;top:auto;margin-top:7px}.client-note{align-items:flex-start;flex-wrap:wrap}.client-note .locked-chip{margin:9px 0 0 64px}}

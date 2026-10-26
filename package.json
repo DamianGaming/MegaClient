@@ -1,8 +1,8 @@
 {
   "name": "megaclient-launcher",
   "productName": "MegaClient",
-  "version": "1.10.0",
-  "description": "A clean, lightweight Minecraft launcher with profile importing, adaptive game performance mode, automatic updates, isolated instances, Discord activity and protected MegaClient 26.2 support.",
+  "version": "1.11.0",
+  "description": "A clean, fast Minecraft launcher with protected MegaClient, isolated instances, efficient background work and accessible modern navigation.",
   "type": "module",
   "main": "./out/main/index.js",
   "author": "MegaStudios",
@@ -22,7 +22,8 @@
     "client:protect": "node scripts/protect-client.mjs",
     "client:verify": "node scripts/verify-client-resources.mjs",
     "configure:discord": "configure-discord-activity.cmd",
-    "discord:verify": "node scripts/verify-discord-activity.mjs"
+    "discord:verify": "node scripts/verify-discord-activity.mjs",
+    "test:release": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",

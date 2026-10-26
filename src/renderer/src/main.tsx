@@ -2,6 +2,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
 import App, { SplashWindow } from './App'
 import './styles.css'
+import './theme.css'
 
 interface BoundaryState { error: Error | null }
 

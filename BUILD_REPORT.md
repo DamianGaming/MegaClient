@@ -1,65 +1,42 @@
-# MegaClient 1.10.0 Validation Report
+# MegaClient 1.11.0 — source validation report
 
-## Release contents
+## Inputs
 
-- Launcher: `1.10.0`
-- Protected client: MegaClient `0.14.2` refreshed build
-- Minecraft: `26.2`
-- Minimum Fabric Loader: `0.19.3`
-- Java class target: Java 25
+- Base: MegaClient launcher 1.10.0 source archive.
+- Uploaded protected client: `megaclient-0.14.2(2).jar`.
+- Declared protected client metadata: `megaclient` **0.14.2**, Minecraft **~26.2**, Fabric Loader **>=0.19.3**, Java **>=25**, Fabric API **>=0.152.2+26.2**.
+- New uploaded JAR SHA-256: `95eaefa80ffb9ed70ce93b59c9a2dff05dbc6070f59141cb407f97af6d5a0e0a`.
 
-## Protected client
+## Implemented
 
-- Uploaded JAR SHA-256: `f579cde28399753856e9f7f5032f8aca9b9df04ce2b7cbcd040b2271d5b6c886`
-- JAR metadata ID: `megaclient`
-- JAR metadata version: `0.14.2`
-- JAR environment: `client`
-- Required Minecraft version: `~26.2`
-- Required Fabric Loader: `>=0.19.3`
-- Required Java: `>=25`
-- Encrypted `megaclient.bundle` was independently decrypted after creation and matched the uploaded JAR byte-for-byte.
-- Updated launch verifier SHA-256: `a1aa00e99b83ef7de62103a64b82321e10b7e06eba5fc9611940b139e9d8bb80`
-- Launch verifier metadata now requires `megaclient =0.14.2`.
-- No stale `0.13.1` version string remains in the launch verifier.
+- Encrypted client bundle replaced and expected SHA-256 updated.
+- Original 0.14.2 launch verifier retained and checked against its expected hash (client version is unchanged).
+- New Nova theme (`theme.css`) with redesigned sidebar, dashboard, navigation, cards, mod/content pages and restrained visual feedback.
+- Removed per-card compositor transforms and continuously animated decorative elements; background blur disabled; shorter transitions.
+- Lazy-loaded the 3D skin preview so it does not join the initial renderer bundle.
+- Coalesced renderer launch events and throttled downloadable-file progress callbacks.
+- Corrected full-chunk disk writes and support for externally cancelled HTTP requests.
+- Disabled unnecessary production sourcemaps.
+- Stable Fabric loader sorting from live metadata, preserving pinned profile loader versions.
+- Stale-cache fallback for online Minecraft/loader lists when a previously fetched list is available.
+- Added standalone release integrity tests and CI invocation.
+- Left stored instance/account formats, existing migrations, security rules and importers unchanged.
 
-## Import system review
+## Performed in this environment
 
-- Import target can be either a new instance or an existing compatible instance.
-- Profile/archive handling covers Modrinth `.mrpack`, CurseForge exported ZIP content, Lunar `.dawnpack`, Prism/MultiMC folders, standard Minecraft folders and generic profile archives.
-- Modrinth remote downloads require HTTPS and an integrity hash before installation.
-- Archive and folder paths are constrained to the instance directory.
-- Folder symbolic links are ignored.
-- Archive entry count, archive size, expanded size and individual-file limits are enforced.
-- Existing config/options files are preserved rather than silently overwritten.
-- Identical local files are skipped and other collisions receive an `-imported-N` suffix.
-- Failed imports into newly-created instances clean up the partial instance.
-- Import progress IPC is rate-limited to avoid flooding the renderer on large profiles.
+- Supplied JAR ZIP parsed and its Fabric metadata and entrypoint class checked.
+- Confirmed Java class major version 69 (Java 25).
+- AES-256-GCM bundle regenerated from supplied JAR and decrypted byte-for-byte.
+- `node --test tests/*.test.mjs`: 4/4 passed.
+- TypeScript / TSX source files checked for syntactic parse errors using the globally installed TypeScript compiler.
+- `theme.css` parsed with tinycss2 without stylesheet-level syntax errors.
+- Source and upgrade ZIP entry integrity tests.
 
-## Performance / UI review
+## Not completed here
 
-- Continuous hero-logo, ambient splash, loading-sheen and status-pulse animation work is disabled or reduced.
-- Expensive sidebar/modal backdrop blur is disabled.
-- Large card shadows and hover transforms are removed or reduced.
-- New installations default to reduced motion.
-- Existing game-performance mode now notifies the renderer so non-essential animation work can be disabled while Minecraft is running.
-- Long cards/lists keep `content-visibility` containment.
-- Functional progress indicators remain available for launch, updates and imports.
+- A dependency-backed `npm ci`: the package download did not complete in the available environment.
+- Full `tsc --noEmit`/`npm run typecheck`: types for `electron-vite/node` and `node` were unavailable because npm dependencies could not be installed.
+- Full Electron/Vite/NSIS packaging and signed-in Windows launch.
+- Direct FPS, launch-time and ping benchmarks on the user's PC or against their servers.
 
-## Static validation
-
-- All 23 executable TypeScript/TSX source files were parsed/transpiled with TypeScript 5.8.3 with zero syntax diagnostics.
-- Package and package-lock launcher versions both resolve to `1.10.0`.
-- IPC, preload and renderer declarations for profile importing are wired consistently.
-
-## Still required on Windows before public release
-
-This environment does not contain the project's npm dependencies, so the real project `npm run typecheck`, Electron/Vite production build, NSIS packaging, authenticated Microsoft profile actions and live Minecraft launch were not executed here. Run these in the source folder before publishing:
-
-```bat
-npm ci
-npm run client:verify
-npm run typecheck
-npm run build
-```
-
-The GitHub Actions release workflow should then build the final Windows installer and updater metadata.
+Performance improvements are targeted at identifiable overhead in the launcher. Exact FPS and network latency improvements cannot be guaranteed without representative benchmarks.

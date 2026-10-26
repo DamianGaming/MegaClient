@@ -24,6 +24,7 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run test:release
       - run: npm run discord:verify
 
       - name: Build installer and updater files

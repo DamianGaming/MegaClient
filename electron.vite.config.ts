@@ -5,13 +5,13 @@ import { resolve } from 'node:path'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    build: { sourcemap: true }
+    build: { sourcemap: false }
   },
   preload: {
     // Sandboxed Electron preload scripts cannot execute native ESM imports.
     // Force one CommonJS preload bundle so contextBridge remains available.
     build: {
-      sourcemap: true,
+      sourcemap: false,
       rollupOptions: {
         output: {
           format: 'cjs',
@@ -26,7 +26,7 @@ export default defineConfig({
     base: './',
     plugins: [react()],
     build: {
-      sourcemap: true,
+      sourcemap: false,
       assetsDir: 'assets'
     }
   }

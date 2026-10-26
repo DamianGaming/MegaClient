@@ -39,3 +39,11 @@ npm run build
 ## Publish
 
 Double-click `publish-megaclient-update.cmd` and enter `1.10.0`.
+
+## MegaClient 1.11.0
+
+The 1.11.0 launcher introduces the Nova interface theme: low-overhead flat surfaces, compact navigation, a redesigned launch dashboard, accessible focus states and short, restrained transitions. The skin/cape canvas renderer is code-split and only fetched when necessary. Frequent launch/download UI events are throttled. Production JavaScript source maps are disabled.
+
+Fabric Loader releases are fetched from Fabric's live version endpoint and sorted with stable versions first. Previously selected loader versions remain intact. The private client bundle contains the updated 0.14.2 client provided for this release; it still targets Minecraft 26.2 and Java 25.
+
+For release checks run `npm run test:release`, `npm run client:verify`, `npm run typecheck` and `npm run build`.
