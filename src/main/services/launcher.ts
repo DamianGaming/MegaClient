@@ -682,7 +682,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   // EML's launch() starts a separate Java process. Its Promise can settle while
   // Minecraft is still booting, so never delete the protected Fabric JARs or
   // re-enable background updater traffic from launch()'s finally block.
-  const finishGameSession = async (code?: number): Promise<void> => {
+  const finishGameSession = async (code?: number | null): Promise<void> => {
     if (sessionFinalized) return
     sessionFinalized = true
     stopSecurityMonitor()
@@ -691,7 +691,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     destroyGameTray()
     showMainWindow(mainWindow)
     showLauncherActivity(instance)
-    if (code !== undefined) {
+    if (code != null) {
       setConsoleState(code === 0 ? 'Finished' : `Exited (${code})`)
       emit(mainWindow, 'launch:closed', { code })
     }
@@ -705,7 +705,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   }
 
   launcher.on('launch_close', (code) => {
-    void finishGameSession(code ?? undefined)
+    void finishGameSession(code)
   })
 
   const restoreEnvironment = secureChildEnvironment()
