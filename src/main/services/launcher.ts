@@ -228,7 +228,7 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
   try {
     const fabricApi = await ensureRequiredMod(instance.id, 'P7dR8mSH', (message, progress) => {
       emit(mainWindow, 'launch:progress', { phase: 'client', message, progress } satisfies LaunchProgress)
-    })
+    }, 24 * 60 * 60_000, '0.152.2')
     appendConsole(`[MegaClient] Fabric API ${fabricApi.versionNumber ?? 'compatible build'} is ready`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -592,6 +592,8 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   setGamePerformanceMode(mainWindow, true)
 
   let payloadCleaned = false
+  let gameSpawned = false
+  let sessionFinalized = false
   let clientObserved = false
   let gameStartedAt = Date.now()
   const cleanupPayload = async (): Promise<void> => {
@@ -629,8 +631,10 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   launcher.on('launch_extract_natives', () => progress('natives', 'Extracting native libraries'))
   launcher.on('launch_patch_loader', () => progress('loader', 'Finalising the mod loader'))
   launcher.on('launch_launch', () => {
+    gameSpawned = true
     if (clientPayload) {
-      validatePreparedClientPayloadSync(clientPayload)
+      // Validated before spawn; do not synchronously re-read megabytes of JARs
+      // inside EML's process-spawn event.
       appendConsole('[MegaClient] Fabric can read the verified runtime JARs', 'success')
     }
     gameStartedAt = Date.now()
@@ -675,16 +679,33 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     appendConsole(`[Crash] ${JSON.stringify(data)}`, 'error')
     emit(mainWindow, 'launch:crash', data)
   })
-  launcher.on('launch_close', (code) => {
-    setGamePerformanceMode(mainWindow, false)
+  // EML's launch() starts a separate Java process. Its Promise can settle while
+  // Minecraft is still booting, so never delete the protected Fabric JARs or
+  // re-enable background updater traffic from launch()'s finally block.
+  const finishGameSession = async (code?: number): Promise<void> => {
+    if (sessionFinalized) return
+    sessionFinalized = true
     stopSecurityMonitor()
     stopClientVerification()
-    setConsoleState(code === 0 ? 'Finished' : `Exited (${code ?? 'unknown'})`)
-    emit(mainWindow, 'launch:closed', { code })
+    setGamePerformanceMode(mainWindow, false)
     destroyGameTray()
     showMainWindow(mainWindow)
     showLauncherActivity(instance)
-    void cleanupPayload()
+    if (code !== undefined) {
+      setConsoleState(code === 0 ? 'Finished' : `Exited (${code})`)
+      emit(mainWindow, 'launch:closed', { code })
+    }
+    // Windows can hold an open handle to a just-terminated Java process.
+    // cleanupPayload() already retries locked files and remains idempotent.
+    try { await cleanupPayload() } catch (error) {
+      appendConsole(`[MegaClient] Could not remove a temporary runtime file: ${String(error)}`, 'muted')
+    } finally {
+      if (activeLauncher === launcher) activeLauncher = null
+    }
+  }
+
+  launcher.on('launch_close', (code) => {
+    void finishGameSession(code ?? undefined)
   })
 
   const restoreEnvironment = secureChildEnvironment()
@@ -692,22 +713,17 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     await launcher.launch()
     await updateInstance(instance.id, { lastPlayedAt: new Date().toISOString() })
   } catch (error) {
-    setGamePerformanceMode(mainWindow, false)
-    stopSecurityMonitor()
-    stopClientVerification()
-    destroyGameTray()
-    showMainWindow(mainWindow)
-    showLauncherActivity(instance)
     const message = error instanceof Error ? error.message : String(error)
     appendConsole(`[Error] ${message}`, 'error')
     setConsoleState('Launch failed')
     emit(mainWindow, 'launch:error', { message })
+    await finishGameSession()
     throw error
   } finally {
-    setGamePerformanceMode(mainWindow, false)
     restoreEnvironment()
-    await cleanupPayload()
-    activeLauncher = null
+    // No Minecraft process was ever spawned, so there will be no close event.
+    // Otherwise launch_close is the only owner of protected runtime cleanup.
+    if (!gameSpawned) await finishGameSession()
   }
 }
 

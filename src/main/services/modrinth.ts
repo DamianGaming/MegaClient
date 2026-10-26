@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import AdmZip from 'adm-zip'
+import semver from 'semver'
 import type { DiscoverContentType, LauncherInstance, TrackedMod, TrackedPack } from '../types'
 import { getInstance, updateInstance } from './instances'
 import {
@@ -392,15 +393,54 @@ export async function installMod(instanceId: string, projectId: string, onProgre
 }
 
 
+function meetsMinimumVersion(version: string | undefined, minimum: string | undefined): boolean {
+  if (!minimum) return true
+  const found = version ? semver.coerce(version)?.version : undefined
+  const requested = semver.coerce(minimum)?.version
+  return Boolean(found && requested && semver.gte(found, requested))
+}
+
+async function findLocalFabricApi(instance: LauncherInstance, minimumVersion?: string, managedNames = new Set<string>()): Promise<TrackedMod | null> {
+  const directory = modsDirectory(instance.slug)
+  const names = await fs.readdir(directory).catch(() => [] as string[])
+  for (const name of names.filter((item) => /fabric[-_ ]api/i.test(item) && item.toLowerCase().endsWith('.jar') && !managedNames.has(item))) {
+    try {
+      const archive = new AdmZip(path.join(directory, name))
+      const entry = archive.getEntry('fabric.mod.json')
+      if (!entry) continue
+      const metadata = JSON.parse(entry.getData().toString('utf8')) as { id?: string; version?: string }
+      if (metadata.id !== 'fabric-api') continue
+      if (!metadata.version?.endsWith(`+${instance.minecraftVersion}`)) {
+        throw new Error(`Installed Fabric API ${metadata.version ?? 'unknown'} (${name}) does not target Minecraft ${instance.minecraftVersion}. Update or remove it from this instance.`)
+      }
+      if (!meetsMinimumVersion(metadata.version, minimumVersion)) {
+        throw new Error(`Installed Fabric API ${metadata.version ?? 'unknown'} (${name}) is older than the required ${minimumVersion}. Update or remove it from this instance.`)
+      }
+      return { title: 'Fabric API', fileName: name, enabled: true, versionNumber: metadata.version, source: 'local' }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Installed Fabric API ')) throw error
+      // Another mod may have a similar filename; ignore it.
+    }
+  }
+  return null
+}
+
 export async function ensureRequiredMod(
   instanceId: string,
   projectId: string,
   onProgress?: (message: string, progress?: number) => void,
-  freshnessMs = 24 * 60 * 60_000
+  freshnessMs = 24 * 60 * 60_000,
+  minimumVersion?: string
 ): Promise<TrackedMod> {
   return withInstallLock(`required:${instanceId}:${projectId}`, async () => {
     const instance = getInstance(instanceId)
     const state = await readState(instance)
+    // Imported modpacks often contain Fabric API without Modrinth tracking data.
+    // Reuse that verified JAR instead of installing a duplicate mod ID.
+    if (projectId === 'P7dR8mSH') {
+      const local = await findLocalFabricApi(instance, minimumVersion, new Set(state.mods.map((mod) => mod.fileName)))
+      if (local) return local
+    }
     let existing = state.mods.find((mod) => mod.projectId === projectId && mod.source === 'modrinth')
     let existingAvailable = false
 
@@ -419,18 +459,22 @@ export async function ensureRequiredMod(
       }
 
       const installedAt = existing.installedAt ? Date.parse(existing.installedAt) : 0
-      if (existingAvailable && installedAt > 0 && Date.now() - installedAt < freshnessMs) {
+      if (existingAvailable && meetsMinimumVersion(existing.versionNumber, minimumVersion) && installedAt > 0 && Date.now() - installedAt < freshnessMs) {
         return { ...existing, enabled: true }
       }
     }
 
     try {
-      return await installMod(instanceId, projectId, onProgress)
+      const installed = await installMod(instanceId, projectId, onProgress)
+      if (!meetsMinimumVersion(installed.versionNumber, minimumVersion)) {
+        throw new Error(`No compatible Fabric API ${minimumVersion} or newer was installed for Minecraft ${instance.minecraftVersion}.`)
+      }
+      return installed
     } catch (error) {
       // A required dependency that is already present should remain usable when
       // Modrinth is temporarily unavailable. Launching offline is preferable to
       // repeatedly failing or redownloading Fabric API on every start.
-      if (existing && existingAvailable) return { ...existing, enabled: true }
+      if (existing && existingAvailable && meetsMinimumVersion(existing.versionNumber, minimumVersion)) return { ...existing, enabled: true }
       throw error
     }
   })

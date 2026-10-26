@@ -1,49 +1,45 @@
-# MegaClient Launcher 1.10.0
+# MegaClient Launcher 1.12.0
 
-MegaClient is a clean, lightweight Minecraft launcher with isolated instances, Microsoft sign-in, content management, automatic updates, Discord activity and the protected MegaClient client.
+MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, isolated game instances, mod and modpack management, third-party profile imports, server shortcuts, skins and capes, Discord activity and automatic updates.
 
-## Versions
+## Versions and compatibility
 
-- Launcher: `1.10.0`
-- Built-in MegaClient client: `0.14.2` (refreshed build)
-- Protected Minecraft version: `26.2`
-- Minimum Fabric Loader for MegaClient: `0.19.3`
-- Java: `25`
+- Launcher: **1.12.0**
+- Protected in-game MegaClient: **0.14.2** (latest provided JAR)
+- Minecraft: **26.2**
+- Minimum Fabric Loader for the protected client: **0.19.3**
+- Minimum Fabric API for the protected client: **0.152.2+26.2**
+- Minecraft Java runtime: **25**
 
-## 1.10.0 highlights
+Other Minecraft instances can use Vanilla, Fabric, Forge or NeoForge. Fabric Loader versions come from Fabric's live metadata with stable releases preferred; existing instance selections are not overwritten.
 
-- New profile importer for Modrinth, CurseForge, Lunar Client, Prism / MultiMC and normal Minecraft profile folders.
-- Import into a new MegaClient instance or merge compatible content into an existing instance.
-- Imports compatible mods, configs, resource packs, shaders, worlds and common profile settings.
-- Refreshed protected MegaClient 0.14.2 payload and launch verifier.
-- Calmer launcher design with fewer continuous animations, reduced blur/shadow work and shorter transitions.
-- New installs default to reduced motion, while essential progress indicators still remain clear.
-- Game performance mode also tells the renderer to avoid non-essential animation work while Minecraft is running.
-- Long content lists continue to use deferred rendering to reduce UI work.
+## This release
 
-## Import safety
+- A reworked workspace: minimal left rail, single Play control, current-instance status, command list, consistent controls and focused sign-in screen. Reduced shadows, gradients, blur and decorative animations; short functional transitions remain.
+- Fixed protected-client files being removed immediately when the launch library finished spawning Java, before the Minecraft process actually exited.
+- Launch monitoring, background update throttling and runtime cleanup now follow the actual game session instead of the initial launch promise.
+- Imported Fabric instances can reuse an existing compatible Fabric API JAR, preventing a second installation of the same mod ID. Outdated or cross-version Fabric API is reported clearly.
+- Reuses metadata for unchanged unrelated mod JARs during protected-client conflict scanning, reducing repeated disk reads across launches.
+- Retains legacy accounts, saves, launcher settings, world imports, content installs and automated GitHub release packaging.
 
-MegaClient only imports profile content into the chosen instance. Account credentials, launcher sessions and launcher-specific cosmetics are never copied. Existing configuration files are preserved rather than overwritten. File paths are constrained to the instance directory, symbolic links are ignored for folder imports, large archives are capped, and Modrinth downloads require HTTPS plus a declared integrity hash.
+## Build / verification
 
-CurseForge exported ZIPs can reference hosted mod files that are not physically included in the archive. MegaClient imports bundled files from such exports; importing the already-installed CurseForge profile folder provides the most complete local copy without requiring a CurseForge API key.
-
-## Development
+On Windows with Node.js 22 and Git:
 
 ```bat
 npm ci
 npm run client:verify
+npm run test:release
 npm run typecheck
 npm run build
 ```
 
-## Publish
+After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.0`.
 
-Double-click `publish-megaclient-update.cmd` and enter `1.10.0`.
+## Security and import safety
 
-## MegaClient 1.11.0
+The encrypted client is stored under `resources/client/megaclient.bundle`, and the launch verifier is under `resources/client/launch-verifier.jar`. The private JARs are written only to the selected isolated instance during launch and must remain available until Minecraft exits. The supplied client JAR is not a separately distributed loose resource.
 
-The 1.11.0 launcher introduces the Nova interface theme: low-overhead flat surfaces, compact navigation, a redesigned launch dashboard, accessible focus states and short, restrained transitions. The skin/cape canvas renderer is code-split and only fetched when necessary. Frequent launch/download UI events are throttled. Production JavaScript source maps are disabled.
+The profile importer never copies account credentials, tokens or third-party launcher sessions; it constrains destination paths to the chosen instance, skips symbolic links, limits archive sizes and preserves existing files when conflicts occur.
 
-Fabric Loader releases are fetched from Fabric's live version endpoint and sorted with stable versions first. Previously selected loader versions remain intact. The private client bundle contains the updated 0.14.2 client provided for this release; it still targets Minecraft 26.2 and Java 25.
-
-For release checks run `npm run test:release`, `npm run client:verify`, `npm run typecheck` and `npm run build`.
+**Important:** The source and integrity tests do not prove that an installed launcher can authenticate and run every combination of Minecraft, Fabric, Java and mods on Windows. Test a clean and an existing instance before release.

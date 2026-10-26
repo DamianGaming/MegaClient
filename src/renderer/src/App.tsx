@@ -271,7 +271,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.11.0')
+  const [version, setVersion] = useState('1.12.0')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -509,12 +509,23 @@ function App() {
           <img src="./logo.png" alt="MegaClient" />
           <span><strong>MegaClient</strong><small>MegaStudios</small></span>
         </button>
-        <div className="sidebar-section-label">YOUR LAUNCHER</div>
         <nav aria-label="Launcher navigation">
-          {navItems.map((item) => (
-            <button key={item.id} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
-              <item.icon size={18} />
-              <span>{item.label}</span>
+          <div className="sidebar-section-label">LAUNCH</div>
+          {navItems.filter((item) => ['home', 'instances'].includes(item.id)).map((item) => (
+            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
+              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
+            </button>
+          ))}
+          <div className="sidebar-section-label">CONTENT</div>
+          {navItems.filter((item) => ['browse', 'manage', 'servers', 'cosmetics'].includes(item.id)).map((item) => (
+            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
+              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
+            </button>
+          ))}
+          <div className="sidebar-section-label">PREFERENCES</div>
+          {navItems.filter((item) => item.id === 'settings').map((item) => (
+            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
+              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
             </button>
           ))}
         </nav>
@@ -535,6 +546,10 @@ function App() {
       </aside>
 
       <main className="content">
+        <div className="workspace-topline">
+          <div className="workspace-location"><span>WORKSPACE</span><ChevronRight size={13} /><strong>{navItems.find((item) => item.id === tab)?.label ?? 'Home'}</strong></div>
+          <div className="workspace-tools"><span className="workspace-client"><i /> Client {clientVersion}</span><button title="Open launch console" aria-label="Open launch console" onClick={() => window.mega.instances.openConsole()}><TerminalSquare size={17} /></button></div>
+        </div>
         {update?.state === 'ready' && (
           <div className="update-banner">
             <Download size={17} />
@@ -699,7 +714,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.10.0',
+    launcherVersion: '1.12.0',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -761,41 +776,25 @@ export function SplashWindow() {
 
 function LoginScreen({ version, loading, onLogin }: { version: string; loading: boolean; onLogin: () => void }) {
   return (
-    <div className="login-shell refined-login">
+    <div className="login-shell clean-login">
       <Titlebar />
-      <div className="login-ambient ambient-one" />
-      <div className="login-ambient ambient-two" />
       <section className="login-card">
         <div className="login-brand">
           <div className="login-logo-wrap"><img src="./logo.png" alt="" /></div>
-          <div><strong>MegaClient</strong><small>MegaStudios · v{version}</small></div>
+          <div><strong>MegaClient</strong><small>by MegaStudios</small></div>
         </div>
         <div className="login-copy">
-          <span className="login-eyebrow">Minecraft, organised.</span>
-          <h1>Everything you play,<br /><em>in one launcher.</em></h1>
-          <p>Keep every instance, mod, pack and world together with a fast launcher built around Minecraft Java Edition.</p>
-        </div>
-        <div className="login-features">
-          <span><Library size={15} /> Separate instances</span>
-          <span><PackagePlus size={15} /> One-click content</span>
-          <span><ShieldCheck size={15} /> Protected launches</span>
+          <span className="login-eyebrow">WELCOME BACK</span>
+          <h1>Just Minecraft.<br /><em>Your way.</em></h1>
+          <p>Sign in to get to your instances, mods and worlds. Everything stays organised, just how you left it.</p>
         </div>
         <button className="microsoft-login" onClick={onLogin} disabled={loading}>
           <span className="ms-symbol"><i /><i /><i /><i /></span>
           <span>{loading ? 'Opening Microsoft sign-in…' : 'Continue with Microsoft'}</span>
           {loading ? <RefreshCw className="spin" size={18} /> : <ChevronRight size={18} />}
         </button>
-        <div className="login-details">
-          <span>Official Microsoft sign-in</span>
-        </div>
+        <div className="login-details"><span>Secure Microsoft sign-in</span><span>Launcher {version}</span></div>
       </section>
-      <aside className="login-art" aria-hidden="true">
-        <div className="login-art-grid" />
-        <div className="login-orbit orbit-a" />
-        <div className="login-orbit orbit-b" />
-        <img src="./logo.png" alt="" />
-        <div className="login-art-label"><span>MEGACLIENT</span><strong>Ready when you are.</strong></div>
-      </aside>
     </div>
   )
 }
@@ -830,69 +829,54 @@ function PageHeading({ eyebrow, title, description, actions }: {
 }
 
 function HomeView({ selected, launching, progress, clientVersion, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
+  const loader = selected ? loaderLabel(selected.loader) : 'Not configured'
   return (
     <div className="page home-page">
-      <section className="hero-card">
-        <div className="hero-copy">
-          <span className="hero-kicker"><span className="online-dot" /> YOUR MINECRAFT LAUNCHER</span>
-          <h1>Ready when you are.</h1>
-          <p>Your favourite Minecraft versions, mods and worlds — organised in one place.</p>
-          <div className="hero-actions">
-            <button className="primary large" onClick={onLaunch} disabled={launching || !selected}>
-              {launching ? <RefreshCw className="spin" size={18} /> : <Play fill="currentColor" size={17} />}
-              {launching ? 'Preparing Minecraft' : 'Launch Minecraft'}
-            </button>
-            <button className="secondary large" onClick={onInstances}><Library size={17} /> My instances</button>
-          </div>
+      <header className="home-intro">
+        <div className="home-intro-text">
+          <span className="home-section-index">01 / PLAY</span>
+          <h1>Pick up where you left off<span className="intro-period">.</span></h1>
+          <p>Select an instance and head straight back into Minecraft.</p>
         </div>
-        <div className="hero-overview">
-          <span className="hero-overview-kicker">SELECTED PROFILE</span>
-          <div className="hero-overview-profile">
-            <div className="hero-overview-icon">{selected?.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={24} />}</div>
-            <div><strong>{selected?.name ?? 'No profile selected'}</strong><small>{selected ? `Minecraft ${selected.minecraftVersion} · ${loaderLabel(selected.loader)}` : 'Create an instance to get started'}</small></div>
-          </div>
-          <div className="hero-overview-footer"><span>{selected?.customClient ? `MegaClient ${clientVersion}` : selected?.loaderVersion ? `${loaderLabel(selected.loader)} ${selected.loaderVersion}` : 'Vanilla Minecraft'}</span><span className="hero-ready"><span className="online-dot" /> {launching ? 'Preparing' : 'Ready'}</span></div>
-        </div>
-      </section>
+        <span className="home-headline-tag"><span className="online-dot" /> {launching ? 'PREPARING SESSION' : 'LAUNCHER READY'}</span>
+      </header>
 
-      <div className="home-grid">
-        <section className="panel selected-panel">
-          <div className="panel-title"><span>Selected instance</span>{selected && <span className={`status-dot ${launching ? 'working' : ''}`}>{launching ? launchPhaseLabel(progress.phase) : 'Ready'}</span>}</div>
-          {selected ? (
-            <>
-              <div className="instance-feature">
-                <div className="instance-icon">{selected.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 />}</div>
-                <div><h3>{selected.name}</h3><p>Minecraft {selected.minecraftVersion} · {loaderLabel(selected.loader)}{selected.customClient ? ` · Client ${clientVersion}` : ''}</p></div>
-              </div>
-              {launching ? (
-                <div className="launch-status detailed">
-                  <div className="launch-row"><span>{progress.message}</span><span>{Math.round(launchPhaseProgress(progress.phase, progress.progress) * 100)}%</span></div>
-                  <div className="progress"><i style={{ width: `${Math.max(4, launchPhaseProgress(progress.phase, progress.progress) * 100)}%` }} /></div>
-                  <div className="launch-detail"><span>{launchPhaseLabel(progress.phase)}</span>{progress.total ? <small>{formatBytes(progress.downloaded)} of {formatBytes(progress.total)} · {formatBytes((progress.speed ?? 0) * 1024)}/s</small> : <small>Working in the background</small>}</div>
-                  <button className="launch-console-link" onClick={onConsole}><TerminalSquare /> Open live console</button>
-                </div>
-              ) : (
-                <div className="instance-meta">
-                  <span><HardDrive size={14} />{selected.loaderVersion ? `Loader ${selected.loaderVersion}` : 'No loader required'}</span>
-                  <button onClick={onConsole}><TerminalSquare size={15} /> Console</button>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="empty-compact"><Library /><h3>No instances yet</h3><p>Create your first Minecraft setup to begin.</p></div>
+      <div className="home-layout">
+        <section className="play-workspace" aria-label="Current Minecraft instance">
+          <div className="play-topline"><span>CURRENT INSTANCE</span><button onClick={onInstances}>Switch instance <ChevronRight size={14} /></button></div>
+          <div className="play-instance-body">
+            <div className="play-instance-emblem" aria-hidden="true">{selected?.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={30} strokeWidth={1.6}/>}</div>
+            <div className="play-instance-copy">
+              <span>{selected?.customClient ? `MEGACLIENT ${clientVersion}` : `MINECRAFT · ${loader.toUpperCase()}`}</span>
+              <h2>{selected?.name ?? 'Choose your instance'}</h2>
+              <p>{selected ? `${selected.minecraftVersion}  /  ${loader}${selected.loaderVersion ? ` ${selected.loaderVersion}` : ''}` : 'Create or import a profile to get started.'}</p>
+            </div>
+          </div>
+          {launching && (
+            <div className="play-live-progress">
+              <div><span>{progress.message || 'Preparing Minecraft'}</span><strong>{Math.round(launchPhaseProgress(progress.phase, progress.progress) * 100)}%</strong></div>
+              <div className="progress"><i style={{ width: `${Math.max(4, launchPhaseProgress(progress.phase, progress.progress) * 100)}%` }} /></div>
+            </div>
           )}
-        </section>
-
-        <section className="panel quick-panel home-shortcuts">
-          <div className="panel-title"><span>Quick access</span></div>
-          <div className="shortcut-list">
-            <button onClick={onBrowse}><Search /><span><strong>Discover content</strong><small>Find mods, packs and shaders</small></span><ChevronRight /></button>
-            <button onClick={onManage}><Layers3 /><span><strong>Manage content</strong><small>Mods, packs, shaders and worlds</small></span><ChevronRight /></button>
-            <button onClick={onServers}><Server /><span><strong>Partner servers</strong><small>Join SkyLabs directly</small></span><ChevronRight /></button>
+          <div className="play-control-row">
+            <button className="primary play-primary" onClick={onLaunch} disabled={launching || !selected}>
+              {launching ? <RefreshCw size={18} /> : <Play size={18} fill="currentColor" />}
+              <span>{launching ? 'Launching Minecraft' : 'Play now'}</span>
+              {!launching && <ChevronRight size={18} />}
+            </button>
+            <button className="play-console" title="Open game console" aria-label="Open game console" onClick={onConsole}><TerminalSquare size={18}/></button>
           </div>
         </section>
 
+        <aside className="home-command-list" aria-label="Quick actions">
+          <div className="command-list-head"><span>YOUR SPACE</span><span>THINGS TO DO</span></div>
+          <button onClick={onInstances} className="command-row"><span className="command-index">01</span><span className="command-icon"><Library size={20} /></span><span className="command-info"><strong>Instances</strong><small>Create, import and switch profiles</small></span><ChevronRight size={17}/></button>
+          <button onClick={onBrowse} className="command-row"><span className="command-index">02</span><span className="command-icon"><Search size={20} /></span><span className="command-info"><strong>Discover</strong><small>Explore new content on Modrinth</small></span><ChevronRight size={17}/></button>
+          <button onClick={onManage} className="command-row"><span className="command-index">03</span><span className="command-icon"><Layers3 size={20} /></span><span className="command-info"><strong>Your content</strong><small>Mods, shaders, worlds and packs</small></span><ChevronRight size={17}/></button>
+          <button onClick={onServers} className="command-row"><span className="command-index">04</span><span className="command-icon"><Server size={20} /></span><span className="command-info"><strong>Servers</strong><small>Connect and play together</small></span><ChevronRight size={17}/></button>
+        </aside>
       </div>
+      <footer className="home-footerline"><span>MEGACLIENT <strong>{clientVersion}</strong></span><span>SEPARATE INSTANCES · YOUR FILES STAY LOCAL</span><span>READY FOR NEXT SESSION</span></footer>
     </div>
   )
 }

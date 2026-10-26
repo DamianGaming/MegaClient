@@ -1,42 +1,35 @@
-# MegaClient 1.11.0 — source validation report
+# MegaClient 1.12.0 — validation report
 
-## Inputs
+## Changes reviewed
 
-- Base: MegaClient launcher 1.10.0 source archive.
-- Uploaded protected client: `megaclient-0.14.2(2).jar`.
-- Declared protected client metadata: `megaclient` **0.14.2**, Minecraft **~26.2**, Fabric Loader **>=0.19.3**, Java **>=25**, Fabric API **>=0.152.2+26.2**.
-- New uploaded JAR SHA-256: `95eaefa80ffb9ed70ce93b59c9a2dff05dbc6070f59141cb407f97af6d5a0e0a`.
+- Reworked game session lifecycle: protected runtime cleanup is now tied to `launch_close` rather than the resolution of `launcher.launch()`. The active-launch state and background throttling persist during gameplay.
+- Updated player interface structure, layout and shared theme, including sign-in; eliminated decorative repeated animation work.
+- Added compatible local Fabric API detection, explicit minimum-version checks and cached scans of unrelated unchanged mod JARs.
+- Refreshed the protected AES-GCM client bundle from the latest uploaded `megaclient-0.14.2(2).jar`.
 
-## Implemented
+## Verification performed
 
-- Encrypted client bundle replaced and expected SHA-256 updated.
-- Original 0.14.2 launch verifier retained and checked against its expected hash (client version is unchanged).
-- New Nova theme (`theme.css`) with redesigned sidebar, dashboard, navigation, cards, mod/content pages and restrained visual feedback.
-- Removed per-card compositor transforms and continuously animated decorative elements; background blur disabled; shorter transitions.
-- Lazy-loaded the 3D skin preview so it does not join the initial renderer bundle.
-- Coalesced renderer launch events and throttled downloadable-file progress callbacks.
-- Corrected full-chunk disk writes and support for externally cancelled HTTP requests.
-- Disabled unnecessary production sourcemaps.
-- Stable Fabric loader sorting from live metadata, preserving pinned profile loader versions.
-- Stale-cache fallback for online Minecraft/loader lists when a previously fetched list is available.
-- Added standalone release integrity tests and CI invocation.
-- Left stored instance/account formats, existing migrations, security rules and importers unchanged.
+- Uploaded JAR: Fabric mod ID `megaclient`, version `0.14.2`; Minecraft `~26.2`, Java >=25 (class version 69); minimum Fabric Loader `0.19.3`, Fabric API `0.152.2+26.2`; client entrypoint and mixin JSON present.
+- JAR SHA-256: `95eaefa80ffb9ed70ce93b59c9a2dff05dbc6070f59141cb407f97af6d5a0e0a`.
+- New encrypted bundle decrypted successfully and matched the original JAR byte-for-byte.
+- Existing launch verifier SHA-256: `a1aa00e99b83ef7de62103a64b82321e10b7e06eba5fc9611940b139e9d8bb80`.
+- Node built-in release tests: seven tests passed (protected JAR, verifier, versions, essential UI and launch lifecycle invariants).
+- TypeScript/TSX parsing: passed, no syntax diagnostics. CSS parsing: passed with PostCSS.
+- Source/patch archive integrity: verified after packaging.
 
-## Performed in this environment
+## Not verified in this environment
 
-- Supplied JAR ZIP parsed and its Fabric metadata and entrypoint class checked.
-- Confirmed Java class major version 69 (Java 25).
-- AES-256-GCM bundle regenerated from supplied JAR and decrypted byte-for-byte.
-- `node --test tests/*.test.mjs`: 4/4 passed.
-- TypeScript / TSX source files checked for syntactic parse errors using the globally installed TypeScript compiler.
-- `theme.css` parsed with tinycss2 without stylesheet-level syntax errors.
-- Source and upgrade ZIP entry integrity tests.
+- `npm ci` cannot complete due DNS/network errors (EAI_AGAIN from the npm registry); `npm run typecheck` is consequently blocked by missing type packages.
+- No full Electron/Vite production build, Windows NSIS build, Microsoft sign-in, Java 25/Fabric runtime or live Minecraft session was available here.
+- Therefore the lifecycle fix is **source-level verified, not yet end-to-end proven**. Before publishing, run a protected-client launch on Windows and confirm the game opens and remains running.
 
-## Not completed here
+## Recommended release-gate commands
 
-- A dependency-backed `npm ci`: the package download did not complete in the available environment.
-- Full `tsc --noEmit`/`npm run typecheck`: types for `electron-vite/node` and `node` were unavailable because npm dependencies could not be installed.
-- Full Electron/Vite/NSIS packaging and signed-in Windows launch.
-- Direct FPS, launch-time and ping benchmarks on the user's PC or against their servers.
-
-Performance improvements are targeted at identifiable overhead in the launcher. Exact FPS and network latency improvements cannot be guaranteed without representative benchmarks.
+```bat
+npm ci
+npm run client:verify
+npm run test:release
+npm run typecheck
+npm run build
+npm run dist:win
+```

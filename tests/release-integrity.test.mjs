@@ -46,7 +46,7 @@ test('launcher, lockfile and client versions are consistent', () => {
   const pkg = JSON.parse(sourceText('package.json'))
   const lock = JSON.parse(sourceText('package-lock.json'))
   const service = sourceText('src/main/services/clientPayload.ts')
-  assert.equal(pkg.version, '1.11.0')
+  assert.equal(pkg.version, '1.12.0')
   assert.equal(lock.version, pkg.version)
   assert.equal(lock.packages[''].version, pkg.version)
   assert.match(service, /PROTECTED_CLIENT_VERSION = '0\.14\.2'/)

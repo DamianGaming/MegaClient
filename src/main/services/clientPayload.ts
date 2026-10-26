@@ -82,19 +82,30 @@ async function unhide(target: string): Promise<void> {
 }
 
 
+// Cache metadata for unchanged unrelated mods; large Fabric packs otherwise cause
+// repeated whole-JAR reads every launch just to discover that they are unrelated.
+// Changed size/mtime always invalidates the cache, and protected IDs are never cached.
+const unrelatedJarCache = new Map<string, { size: number; mtimeMs: number }>()
+
 async function removeLegacyOrConflictingClients(directory: string): Promise<void> {
   const names = await fs.readdir(directory).catch(() => [] as string[])
   for (const name of names) {
     if (!name.toLowerCase().endsWith('.jar') || name.startsWith(PROTECTED_RUNTIME_PREFIX)) continue
     const file = path.join(directory, name)
     try {
+      const stat = await fs.stat(file)
+      const cached = unrelatedJarCache.get(file)
+      if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) continue
       const archive = new AdmZip(file)
       const entry = archive.getEntry('fabric.mod.json')
-      if (!entry) continue
-      const metadata = JSON.parse(entry.getData().toString('utf8')) as { id?: string }
-      if (metadata.id !== 'megaclient' && metadata.id !== 'megaclient-launch-verifier') continue
+      const metadata = entry ? JSON.parse(entry.getData().toString('utf8')) as { id?: string } : null
+      if (metadata?.id !== 'megaclient' && metadata?.id !== 'megaclient-launch-verifier') {
+        unrelatedJarCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs })
+        continue
+      }
+      unrelatedJarCache.delete(file)
       const hash = createHash('sha256').update(await fs.readFile(file)).digest('hex')
-      if (metadata.id === 'megaclient' && hash !== EXPECTED_CLIENT_JAR_SHA256) {
+      if (metadata?.id === 'megaclient' && hash !== EXPECTED_CLIENT_JAR_SHA256) {
         throw new Error(`Another enabled mod (${name}) uses the protected megaclient mod ID. Remove it before launching MegaClient.`)
       }
       await unhide(file)
@@ -103,6 +114,11 @@ async function removeLegacyOrConflictingClients(directory: string): Promise<void
       if (error instanceof Error && error.message.includes('uses the protected megaclient mod ID')) throw error
       // Unreadable third-party JARs are handled by Fabric's normal diagnostics.
     }
+  }
+  while (unrelatedJarCache.size > 1200) {
+    const first = unrelatedJarCache.keys().next().value
+    if (!first) break
+    unrelatedJarCache.delete(first)
   }
 }
 
