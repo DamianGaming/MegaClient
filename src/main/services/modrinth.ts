@@ -627,6 +627,7 @@ function loaderFromDependencies(dependencies: Record<string, string>): { loader:
 export async function installModpack(instanceId: string, projectId: string, onProgress?: (message: string, progress?: number) => void): Promise<LauncherInstance> {
   return withInstallLock(`modpack:${instanceId}:${projectId}`, async () => {
     let instance = getInstance(instanceId)
+    if (instance.customClient) throw new Error('Create a standard instance to install a modpack. The protected MegaClient profile must keep its own Minecraft and Fabric runtime.')
     const info = await project(projectId)
     const versions = sortVersions(await fetchJson<ModrinthVersion[]>(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`))
     const version = versions[0]
@@ -642,10 +643,8 @@ export async function installModpack(instanceId: string, projectId: string, onPr
       const index = JSON.parse(indexEntry.getData().toString('utf8')) as ModpackIndex
       if (!index.dependencies.minecraft) throw new Error('The modpack does not declare a Minecraft version.')
       const loader = loaderFromDependencies(index.dependencies)
-      instance = await updateInstance(instanceId, {
-        name: info.title, minecraftVersion: index.dependencies.minecraft, loader: loader.loader,
-        loaderVersion: loader.loaderVersion, modpack: { projectId, versionId: version.id, title: info.title }
-      })
+      // Do not change the saved launch configuration until the full pack has
+      // installed successfully. Modpacks pin their declared loader version.
       await fs.mkdir(instanceDirectory(instance.slug), { recursive: true })
       let completed = 0
       const installable = index.files.filter((item) => item.env?.client !== 'unsupported')
@@ -663,6 +662,11 @@ export async function installModpack(instanceId: string, projectId: string, onPr
       }
       await extractOverrides(zip, 'overrides', instanceDirectory(instance.slug))
       await extractOverrides(zip, 'client-overrides', instanceDirectory(instance.slug))
+      instance = await updateInstance(instanceId, {
+        name: info.title, minecraftVersion: index.dependencies.minecraft, loader: loader.loader,
+        loaderVersion: loader.loaderVersion, autoUpdateLoader: false,
+        modpack: { projectId, versionId: version.id, title: info.title }
+      })
       onProgress?.(`Installed ${info.title}`, 1)
       return instance
     } finally {

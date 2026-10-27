@@ -162,7 +162,7 @@ async function listGameJavaProcesses(force = false): Promise<ProcessInfo[]> {
   return values
 }
 
-export async function scanInstanceMods(instance: LauncherInstance): Promise<SecurityFinding[]> {
+export async function scanInstanceMods(instance: LauncherInstance, onProgress?: (done: number, total: number) => void): Promise<SecurityFinding[]> {
   const directory = modsDirectory(instance.slug)
   const names = await fs.readdir(directory).catch(() => [] as string[])
   const candidates = names.filter((name) => name.toLowerCase().endsWith('.jar'))
@@ -173,6 +173,7 @@ export async function scanInstanceMods(instance: LauncherInstance): Promise<Secu
   for (let index = 0; index < candidates.length; index += 6) {
     const batch = await Promise.all(candidates.slice(index, index + 6).map((name) => inspectModJar(path.join(directory, name))))
     for (const finding of batch) if (finding) findings.push(finding)
+    onProgress?.(Math.min(index + batch.length, candidates.length), candidates.length)
     await new Promise<void>((resolve) => setImmediate(resolve))
   }
   return findings
@@ -264,8 +265,8 @@ export async function terminateProcesses(processIds: number[]): Promise<void> {
   }
 }
 
-export async function runPreflightSecurity(instance: LauncherInstance): Promise<void> {
-  const [mods, processes] = await Promise.all([scanInstanceMods(instance), scanRunningTools('preflight')])
+export async function runPreflightSecurity(instance: LauncherInstance, onProgress?: (done: number, total: number) => void): Promise<void> {
+  const [mods, processes] = await Promise.all([scanInstanceMods(instance, onProgress), scanRunningTools('preflight')])
   const finding = [...mods, ...processes][0]
   if (finding) throw new Error(`${finding.title}: ${finding.detail}`)
 }

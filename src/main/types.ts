@@ -9,6 +9,8 @@ export interface LauncherInstance {
   minecraftVersion: string
   loader: LoaderType
   loaderVersion?: string
+  /** Keep automatically created loader builds current; imported/pinned builds stay unchanged. */
+  autoUpdateLoader?: boolean
   icon?: string
   createdAt: string
   updatedAt: string

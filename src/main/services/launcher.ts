@@ -11,7 +11,7 @@ import {
   PROTECTED_CLIENT_VERSION,
   PROTECTED_MINECRAFT_VERSION,
   prepareClientPayload,
-  validatePreparedClientPayloadSync,
+  validatePreparedClientPayload,
   type PreparedClientPayload
 } from './clientPayload'
 import { getInstance, updateInstance } from './instances'
@@ -22,6 +22,7 @@ import { ensureRequiredMod } from './modrinth'
 import { showLauncherActivity, showLaunchingActivity, showPlayingActivity } from './discordActivity'
 import { setGameplayUpdatePause } from './updater'
 import { setServerStatusPaused } from './servers'
+import { consoleFonts } from './consoleFonts'
 import {
   findGameJavaProcesses,
   runPreflightSecurity,
@@ -40,6 +41,11 @@ const CLIENT_VERSION_PATTERN = new RegExp(`(?:^|[\\s\\-:])megaclient(?:[\\s\\-:@
 const CLIENT_MOD_PATTERN = new RegExp(`mod\\s+megaclient\\s+${ESCAPED_CLIENT_VERSION}`, 'im')
 
 let activeLauncher: Launcher | null = null
+// Reserve the launch synchronously, before account, network and payload awaits.
+// Otherwise rapid Play clicks can stage two runtimes in the same instance.
+let launchReserved = false
+let activeInstanceId: string | null = null
+export function isInstanceLaunchActive(id: string): boolean { return launchReserved && activeInstanceId === id }
 let consoleWindow: BrowserWindow | null = null
 let gameTray: Tray | null = null
 let securityTimer: NodeJS.Timeout | null = null
@@ -48,6 +54,8 @@ let securityCheckRunning = false
 let consoleLines: Array<{ line: string; kind: 'info' | 'error' | 'game' | 'muted' | 'success' }> = []
 let consolePending: Array<{ line: string; kind: 'info' | 'error' | 'game' | 'muted' | 'success' }> = []
 let consoleFlushTimer: NodeJS.Timeout | null = null
+let consoleFlushInFlight = false
+let lastConsoleState = 'Preparing'
 let gamePerformanceActive = false
 let securityMonitorGeneration = 0
 let clientVerificationGeneration = 0
@@ -90,8 +98,106 @@ function destroyGameTray(): void {
 }
 
 function consoleHtml(iconDataUrl: string): string {
+  // The launcher drives this page through #log (rows of `.line <kind>`) and #state,
+  // so those hooks stay exactly as they are. Filters, search, copy and clear run
+  // entirely inside the page and never touch the launch logic.
+  // NOTE: this is a template literal; keep the inline script free of backticks and "${".
+  const f = consoleFonts
   return `<!doctype html><html><head><meta charset="utf-8"><title>MegaClient Console</title><style>
-  :root{color-scheme:dark}*{box-sizing:border-box}html,body{width:100%;height:100%}body{margin:0;background:#090a0f;color:#d8dbe4;font:12px/1.58 ui-monospace,SFMono-Regular,Consolas,monospace;overflow:hidden;border:1px solid #272b36;border-radius:12px}.bar{-webkit-app-region:drag;height:50px;display:flex;align-items:center;padding:0 6px 0 14px;border-bottom:1px solid #232631;background:linear-gradient(180deg,#141620,#0f1118)}.brand{display:flex;align-items:center;gap:9px}.brand img{width:26px;height:26px;object-fit:contain}.title{font:650 12px Inter,Segoe UI,sans-serif;color:#f5f6f8}.subtitle{display:block;color:#747b8b;font:9px Inter,Segoe UI,sans-serif;margin-top:1px}.state{margin-left:auto;color:#9ca3b2;font:10px Inter,Segoe UI,sans-serif;padding-right:10px}.controls{-webkit-app-region:no-drag;display:flex;align-self:stretch}.controls button{width:42px;border:0;background:transparent;color:#aeb4c1;cursor:pointer;font:15px Segoe UI,sans-serif}.controls button:hover{background:#20232d;color:#fff}.controls button.close:hover{background:#d83b52}#log{height:calc(100vh - 51px);padding:14px 16px 18px;overflow:auto;white-space:pre-wrap;word-break:break-word;scrollbar-width:thin;scrollbar-color:#343947 transparent}.line{padding:1px 0}.info{color:#cfd3dc}.error{color:#ff6c83}.success{color:#73d99a}.game{color:#b8c2ff}.muted{color:#737b8d}</style></head><body><div class="bar"><div class="brand"><img src="${iconDataUrl}"/><span><span class="title">MegaClient Console</span><span class="subtitle">Minecraft launch and game output</span></span></div><span id="state" class="state">Preparing</span><div class="controls"><button aria-label="Minimise" onclick="window.mega.consoleWindow.minimize()">−</button><button aria-label="Maximise" onclick="window.mega.consoleWindow.maximize()">□</button><button class="close" aria-label="Close" onclick="window.mega.consoleWindow.close()">×</button></div></div><div id="log"></div></body></html>`
+  @font-face{font-family:Poppins;font-weight:400;src:url(data:font/woff;base64,${f.poppins400}) format("woff")}
+  @font-face{font-family:Poppins;font-weight:500;src:url(data:font/woff;base64,${f.poppins500}) format("woff")}
+  @font-face{font-family:Poppins;font-weight:600 800;src:url(data:font/woff;base64,${f.poppins700}) format("woff")}
+  @font-face{font-family:"JetBrains Mono";font-weight:400 700;src:url(data:font/woff;base64,${f.mono400}) format("woff")}
+  :root{color-scheme:dark;--bg:#090a0f;--surface:#12141c;--surface2:#171a24;--surface3:#1e2230;--surface4:#262b3c;--line:rgba(255,255,255,.07);--line2:rgba(255,255,255,.12);--text:#eef0f7;--soft:#c4c9d8;--muted:#8d93a7;--dim:#626879;--accent:#7b7bff;--accent2:#a46bff;--ok:#5fd69a;--warn:#f2b25c;--danger:#ff6b7d}
+  *{box-sizing:border-box}
+  html,body{width:100%;height:100%;margin:0}
+  body{display:flex;flex-direction:column;overflow:hidden;color:var(--soft);font:12.5px/1.5 Poppins,"Segoe UI Variable","Segoe UI",system-ui,sans-serif;border:1px solid var(--line2);border-radius:14px;background:radial-gradient(700px 320px at 0% -10%,rgba(123,110,255,.13),transparent 60%),var(--bg);-webkit-font-smoothing:antialiased}
+  ::selection{background:rgba(123,123,255,.35)}
+  button,input{font:inherit;color:inherit}
+  button{cursor:pointer}
+  .bar{-webkit-app-region:drag;flex:0 0 auto;display:flex;align-items:center;gap:14px;height:58px;padding:0 6px 0 18px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:12px;min-width:0}
+  .mark{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;background:rgba(123,123,255,.14);border:1px solid rgba(123,123,255,.3)}
+  .mark img{width:23px;height:23px;object-fit:contain}
+  .title{font-size:13.5px;font-weight:700;letter-spacing:-.01em;color:var(--text)}
+  .state{display:inline-flex;align-items:center;gap:8px;height:28px;margin-left:auto;padding:0 13px;border-radius:20px;background:var(--surface);border:1px solid var(--line);color:var(--soft);font-size:11.5px;font-weight:500;white-space:nowrap}
+  .state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 3px rgba(242,178,92,.16)}
+  .state[data-tone=ok]::before{background:var(--ok);box-shadow:0 0 0 3px rgba(95,214,154,.18)}
+  .state[data-tone=bad]::before{background:var(--danger);box-shadow:0 0 0 3px rgba(255,107,125,.18)}
+  .state[data-tone=idle]::before{background:var(--dim);box-shadow:0 0 0 3px rgba(98,104,121,.2)}
+  .controls{-webkit-app-region:no-drag;display:flex;align-self:stretch}
+  .controls button{display:grid;place-items:center;width:46px;border:0;background:transparent;color:var(--muted);transition:background-color .12s,color .12s}
+  .controls button:hover{background:rgba(255,255,255,.07);color:#fff}
+  .controls button.close{border-top-right-radius:13px}
+  .controls button.close:hover{background:#e5384f;color:#fff}
+  .tools{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .filters{display:inline-flex;gap:3px;padding:3px;background:#0d0f16;border:1px solid var(--line);border-radius:12px}
+  .filters button{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:0;background:transparent;border-radius:9px;color:var(--muted);font-size:12px;font-weight:500;transition:background-color .12s,color .12s}
+  .filters button:hover{color:var(--text)}
+  .filters button.on{background:var(--surface4);color:#fff;box-shadow:inset 0 0 0 1px var(--line2)}
+  .filters b{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;border-radius:9px;background:rgba(255,255,255,.08);color:var(--soft);font-size:10px;font-weight:500}
+  .filters button[data-f=error] b.has{background:rgba(255,107,125,.2);color:#ff9aa7}
+  .search{position:relative;flex:1;min-width:120px}
+  .search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--dim);pointer-events:none}
+  .search input{width:100%;height:36px;padding:0 12px 0 36px;background:#0d0f16;border:1px solid var(--line2);border-radius:11px;outline:none;font-size:12px;transition:border-color .14s,box-shadow .14s}
+  .search input::placeholder{color:var(--dim)}
+  .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(123,123,255,.16)}
+  .act{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;background:var(--surface3);border:1px solid var(--line);border-radius:11px;color:var(--text);font-size:12px;font-weight:500;transition:background-color .12s,border-color .12s}
+  .act:hover{background:var(--surface4);border-color:var(--line2)}
+  .act.done{color:var(--ok)}
+  #log{flex:1 1 auto;min-height:0;overflow:auto;padding:10px 12px 14px;white-space:pre-wrap;word-break:break-word;font:12px/1.65 "JetBrains Mono","Cascadia Mono",ui-monospace,Consolas,monospace;scrollbar-width:thin;scrollbar-color:#2a2f40 transparent}
+  #log::-webkit-scrollbar{width:10px}
+  #log::-webkit-scrollbar-thumb{background:#262b3b;border-radius:10px;border:3px solid transparent;background-clip:content-box}
+  .line{padding:1px 10px 1px 12px;border-left:2px solid transparent;border-radius:0 7px 7px 0}
+  .line[hidden]{display:none}
+  .line:hover{background:rgba(255,255,255,.035)}
+  .info{color:#d3d7e2}
+  .game{color:#b4beff;border-left-color:rgba(123,123,255,.45)}
+  .success{color:var(--ok);border-left-color:rgba(95,214,154,.6)}
+  .error{color:#ff8a99;border-left-color:var(--danger);background:rgba(255,107,125,.07)}
+  .error:hover{background:rgba(255,107,125,.11)}
+  .muted{color:var(--dim)}
+  .empty{display:none;position:absolute;inset:0;place-content:center;justify-items:center;gap:6px;color:var(--dim);font-size:12px;pointer-events:none}
+  .wrap{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  .wrap.none .empty{display:grid}
+  .foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;height:34px;padding:0 18px;border-top:1px solid var(--line);color:var(--dim);font-size:11px;background:rgba(255,255,255,.015)}
+  .foot span{display:inline-flex;align-items:center;gap:8px}
+  .foot span::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  </style></head><body>
+  <div class="bar"><div class="brand"><span class="mark"><img src="${iconDataUrl}"/></span><span class="title">MegaClient Console</span></div><span id="state" class="state" data-tone="warn">Preparing</span><div class="controls"><button aria-label="Minimise" onclick="window.mega.consoleWindow.minimize()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button><button aria-label="Maximise" onclick="window.mega.consoleWindow.maximize()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></button><button class="close" aria-label="Close" onclick="window.mega.consoleWindow.close()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div></div>
+  <div class="tools"><div class="filters" id="filters"><button class="on" data-f="all">All <b id="c-all">0</b></button><button data-f="game">Game <b id="c-game">0</b></button><button data-f="error">Errors <b id="c-error">0</b></button></div><label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="text" placeholder="Search output" spellcheck="false"/></label><button class="act" id="copy">Copy</button><button class="act" id="clear">Clear</button></div>
+  <div class="wrap" id="wrap"><div id="log"></div><div class="empty"><span>No matching lines</span></div></div>
+  <div class="foot"><span id="foot">Live output</span><span style="margin-left:auto">Latest 900 lines</span></div>
+  <script>
+  (function(){
+    var log=document.getElementById('log'),wrap=document.getElementById('wrap'),q=document.getElementById('q');
+    var kind='all',term='',NL=String.fromCharCode(10);
+    function kindOf(el){var l=['info','error','game','muted','success'];for(var i=0;i<l.length;i++){if(el.classList.contains(l[i]))return l[i]}return 'info'}
+    function apply(el){var k=kindOf(el);var okK=kind==='all'||(kind==='game'&&k==='game')||(kind==='error'&&k==='error');var okT=!term||el.textContent.toLowerCase().indexOf(term)!==-1;el.hidden=!(okK&&okT)}
+    function counts(){
+      var all=log.children.length,g=log.getElementsByClassName('game').length,e=log.getElementsByClassName('error').length,shown=0,i;
+      for(i=0;i<log.children.length;i++){if(!log.children[i].hidden)shown++}
+      document.getElementById('c-all').textContent=all;document.getElementById('c-game').textContent=g;
+      var eb=document.getElementById('c-error');eb.textContent=e;eb.className=e?'has':'';
+      wrap.className=all&&!shown?'wrap none':'wrap';
+      document.getElementById('foot').textContent=(term||kind!=='all')?(shown+' of '+all+' lines shown'):'Live output';
+    }
+    function refresh(){for(var i=0;i<log.children.length;i++)apply(log.children[i]);counts()}
+    new MutationObserver(function(ms){ms.forEach(function(m){for(var i=0;i<m.addedNodes.length;i++){var n=m.addedNodes[i];if(n.nodeType===1)apply(n)}});counts()}).observe(log,{childList:true});
+    document.getElementById('filters').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;kind=b.getAttribute('data-f');var all=this.children;for(var i=0;i<all.length;i++)all[i].classList.toggle('on',all[i]===b);refresh();log.scrollTop=log.scrollHeight});
+    q.addEventListener('input',function(){term=q.value.trim().toLowerCase();refresh()});
+    function flash(btn,text){var old=btn.getAttribute('data-l')||btn.textContent;btn.setAttribute('data-l',old);btn.textContent=text;btn.classList.add('done');setTimeout(function(){btn.textContent=old;btn.classList.remove('done')},1200)}
+    document.getElementById('copy').addEventListener('click',function(){
+      var rows=[],i;for(i=0;i<log.children.length;i++){if(!log.children[i].hidden)rows.push(log.children[i].textContent)}
+      var t=document.createElement('textarea');t.value=rows.join(NL);t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();
+      var ok=false;try{ok=document.execCommand('copy')}catch(err){}document.body.removeChild(t);flash(this,ok?'Copied':'Copy failed');
+    });
+    document.getElementById('clear').addEventListener('click',function(){log.replaceChildren();counts();flash(this,'Cleared')});
+    var st=document.getElementById('state');
+    function tone(){var t=(st.textContent||'').toLowerCase();st.setAttribute('data-tone',/crash|error|fail/.test(t)?'bad':/run|play|live|started/.test(t)?'ok':/clos|exit|stop|ended|finish/.test(t)?'idle':'warn')}
+    new MutationObserver(tone).observe(st,{childList:true,characterData:true,subtree:true});tone();counts();
+  })();
+  </script></body></html>`
 }
 
 function flushConsole(): void {
@@ -100,10 +206,18 @@ function flushConsole(): void {
     consolePending = []
     return
   }
-  if (!consolePending.length) return
+  if (!consolePending.length || consoleFlushInFlight) return
   const batch = consolePending.splice(0, consolePending.length)
+  consoleFlushInFlight = true
+  const target = consoleWindow
   const script = `(() => { const log=document.getElementById('log'); const rows=${JSON.stringify(batch)}; const frag=document.createDocumentFragment(); for(const entry of rows){const row=document.createElement('div');row.className='line '+entry.kind;row.textContent=entry.line;frag.appendChild(row)} log.appendChild(frag); while(log.childElementCount>900)log.firstElementChild?.remove(); log.scrollTop=log.scrollHeight; })()`
-  void consoleWindow.webContents.executeJavaScript(script).catch(() => undefined)
+  void target.webContents.executeJavaScript(script).catch(() => undefined).finally(() => {
+    consoleFlushInFlight = false
+    // Apply backpressure: never queue concurrent DOM injections for fast log streams.
+    if (consolePending.length && consoleWindow === target && !target.isDestroyed() && target.isVisible()) {
+      if (!consoleFlushTimer) consoleFlushTimer = setTimeout(flushConsole, gamePerformanceActive ? 180 : 75)
+    }
+  })
 }
 
 function queueConsole(entries: typeof consolePending): void {
@@ -153,7 +267,10 @@ function showConsole(): BrowserWindow {
     }
   })
   void consoleWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(consoleHtml(iconImage.toDataURL()))}`)
-  consoleWindow.once('ready-to-show', () => consoleWindow?.show())
+  consoleWindow.once('ready-to-show', () => {
+    consoleWindow?.show()
+    setConsoleState(lastConsoleState)
+  })
   consoleWindow.on('show', replayConsole)
   consoleWindow.on('restore', replayConsole)
   consoleWindow.on('closed', () => {
@@ -173,42 +290,41 @@ function appendConsole(line: string, kind: 'info' | 'error' | 'game' | 'muted' |
 }
 
 function setConsoleState(state: string): void {
+  lastConsoleState = state
   if (!consoleWindow || consoleWindow.isDestroyed()) return
   void consoleWindow.webContents.executeJavaScript(`document.getElementById('state').textContent=${JSON.stringify(state)}`).catch(() => undefined)
 }
 
 async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstance> {
   if (instance.loader === 'vanilla') return instance
+  // A chosen older loader or imported modpack is pinned for compatibility.
+  // Only auto-managed profiles (including the protected client) track stable
+  // compatible builds. If a validated installed choice exists, offline launches
+  // still work when the version service is temporarily unreachable.
+  const refresh = instance.customClient || instance.autoUpdateLoader === true || !instance.loaderVersion
+  if (!refresh) return instance
 
-  // A configured loader is already enough for normal instances. Re-querying
-  // Fabric/Forge/NeoForge before every launch adds avoidable network latency and
-  // makes offline starts less reliable.
-  if (!instance.customClient && instance.loaderVersion) return instance
-
-  if (instance.customClient) {
-    const parsed = instance.loaderVersion
-      ? semver.valid(instance.loaderVersion) ?? semver.coerce(instance.loaderVersion)?.version
-      : null
-    if (instance.loader === 'fabric' && parsed && semver.gte(parsed, MINIMUM_CLIENT_LOADER)) return instance
-
-    const versions = await getLoaderVersions('fabric', CLIENT_MINECRAFT_VERSION)
-    const compatible = versions.find((version) => {
-      const value = semver.valid(version) ?? semver.coerce(version)?.version
-      return value ? semver.gte(value, MINIMUM_CLIENT_LOADER) : false
-    })
-    if (!compatible) {
-      throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
-    }
-    return updateInstance(instance.id, {
-      loader: 'fabric',
-      loaderVersion: compatible,
-      minecraftVersion: CLIENT_MINECRAFT_VERSION
-    })
+  const oldVersion = instance.loaderVersion?.trim()
+  const canUseOffline = oldVersion !== undefined && (!instance.customClient ||
+    (instance.loader === 'fabric' && semver.valid(oldVersion) !== null && semver.gte(oldVersion, MINIMUM_CLIENT_LOADER)))
+  let versions: string[]
+  try {
+    versions = await getLoaderVersions(instance.loader, instance.minecraftVersion)
+  } catch (error) {
+    if (canUseOffline) return instance
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Could not resolve ${instance.loader} for Minecraft ${instance.minecraftVersion}: ${detail}`)
   }
 
-  const versions = await getLoaderVersions(instance.loader, instance.minecraftVersion)
-  if (!versions.length) throw new Error(`${instance.loader} does not support Minecraft ${instance.minecraftVersion}.`)
-  return updateInstance(instance.id, { loaderVersion: versions[0] })
+  const version = instance.customClient
+    ? versions.find((candidate) => semver.valid(candidate) !== null && semver.gte(candidate, MINIMUM_CLIENT_LOADER))
+    : versions[0]
+  if (!version) {
+    if (instance.customClient) throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
+    throw new Error(`No compatible ${instance.loader} loader was found for Minecraft ${instance.minecraftVersion}.`)
+  }
+  if (oldVersion === version) return instance
+  return updateInstance(instance.id, { loaderVersion: version })
 }
 
 async function prepareCustomClient(instance: LauncherInstance, mainWindow: BrowserWindow): Promise<PreparedClientPayload | null> {
@@ -238,9 +354,13 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
 
   emit(mainWindow, 'launch:progress', { phase: 'client', message: 'Preparing MegaClient' } satisfies LaunchProgress)
   appendConsole('[MegaClient] Decrypting and verifying the protected runtime', 'muted')
-  const payload = await prepareClientPayload(instance.slug)
+  const payload = await prepareClientPayload(instance.slug, (done, total) => {
+    emit(mainWindow, 'launch:progress', { phase: 'client', message: `Checking existing mods (${done}/${total})` } satisfies LaunchProgress)
+    setConsoleState(`Checking mods (${done}/${total})`)
+  })
   try {
-    validatePreparedClientPayloadSync(payload)
+    emit(mainWindow, 'launch:progress', { phase: 'client', message: 'Verifying MegaClient runtime' } satisfies LaunchProgress)
+    await validatePreparedClientPayload(payload)
     appendConsole(`[MegaClient] Protected runtime prepared for Fabric Loader ${instance.loaderVersion}`, 'success')
     return payload
   } catch (error) {
@@ -526,32 +646,49 @@ function serverGameArgs(address?: string): string[] {
 }
 
 export async function launchInstance(mainWindow: BrowserWindow, instanceId: string, serverAddress?: string): Promise<void> {
-  if (activeLauncher) throw new Error('Minecraft is already being launched by MegaClient.')
+  if (activeLauncher || launchReserved) throw new Error('Minecraft is already being launched by MegaClient.')
+  launchReserved = true
+  activeInstanceId = instanceId
+  let stagedPayload: PreparedClientPayload | null = null
+  try {
   const settings = store.getData().settings
   consoleLines = []
   consolePending = []
   if (settings.showConsole) showConsole()
+  const reportSetup = (phase: string, message: string): void => {
+    emit(mainWindow, 'launch:progress', { phase, message } satisfies LaunchProgress)
+    appendConsole(`[MegaClient] ${message}`, 'info')
+    setConsoleState(message)
+  }
+  reportSetup('profile', 'Loading selected Minecraft profile')
   appendConsole(`[MegaClient] Starting ${new Date().toLocaleString()}`, 'muted')
   if (serverAddress) appendConsole(`[MegaClient] Direct connection: ${serverAddress}`, 'muted')
-  setConsoleState('Preparing')
 
   let instance = getInstance(instanceId)
   if (instance.customClient && (instance.minecraftVersion !== CLIENT_MINECRAFT_VERSION || instance.loader !== 'fabric')) {
     instance = await updateInstance(instance.id, { minecraftVersion: CLIENT_MINECRAFT_VERSION, loader: 'fabric' })
   }
+  reportSetup('profile', `Checking ${instance.loader === 'vanilla' ? 'Minecraft' : instance.loader + ' loader'} compatibility`)
   instance = await resolveLoader(instance)
+  appendConsole(`[MegaClient] Profile ready: Minecraft ${instance.minecraftVersion} · ${instance.loader}${instance.loaderVersion ? ' ' + instance.loaderVersion : ''}`, 'success')
   showLaunchingActivity(instance, serverAddress)
 
-  emit(mainWindow, 'launch:progress', { phase: 'security', message: 'Running enforced launch protection' } satisfies LaunchProgress)
+  reportSetup('security', 'Checking launch security and installed mods')
   appendConsole('[Security] Checking high-confidence blocked identities without restricting legitimate native mods', 'muted')
-  await runPreflightSecurity(instance)
+  await runPreflightSecurity(instance, (done, total) => {
+    emit(mainWindow, 'launch:progress', { phase: 'security', message: `Checking installed mods (${done}/${total})`, progress: total ? done / total : undefined } satisfies LaunchProgress)
+    setConsoleState(`Checking mods (${done}/${total})`)
+  })
+  appendConsole('[Security] Preflight checks completed', 'success')
 
+  reportSetup('account', 'Verifying Microsoft game session')
   const account: Account = await getValidAccount(mainWindow)
+  appendConsole(`[MegaClient] Microsoft session ready for ${account.name}`, 'success')
+  reportSetup('client', instance.customClient ? 'Preparing protected MegaClient files' : 'Preparing Minecraft launch')
   const clientPayload = await prepareCustomClient(instance, mainWindow)
-  const javaArgs = [
-    '-Dmegaclient.launcher=true',
-    '-Dfabric.debug.disableModShuffle=true'
-  ]
+  stagedPayload = clientPayload
+  const javaArgs = ['-Dmegaclient.launcher=true']
+  if (instance.loader === 'fabric') javaArgs.push('-Dfabric.debug.disableModShuffle=true')
   if (clientPayload) {
     javaArgs.push(`-Dmegaclient.payload.sha256=${clientPayload.sha256}`)
     javaArgs.push(`-Dmegaclient.payload.path=${clientPayload.jarPath.replaceAll('\\', '/')}`)
@@ -564,6 +701,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     await fs.rm(path.join(instanceDirectory(instance.slug), 'logs', 'latest.log'), { force: true }).catch(() => undefined)
   }
 
+  reportSetup('prepare', `Starting Minecraft ${instance.minecraftVersion} setup`)
   const launcher = new Launcher({
     root: 'megaclient',
     storage: 'isolated',
@@ -622,6 +760,7 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
       downloaded: downloaded.size, total: total.size, speed
     } satisfies LaunchProgress)
     setConsoleState('Downloading')
+    if (total.size && downloaded.size >= total.size) appendConsole('[MegaClient] Game file downloads complete', 'success')
   })
   launcher.on('download_error', ({ filename, message }) => appendConsole(`[Download] ${filename}: ${String(message)}`, 'error'))
   launcher.on('launch_install_loader', ({ type, minecraftVersion, loaderVersion }) => progress('loader', `Installing ${type === 'VANILLA' ? 'Minecraft' : `${type} ${loaderVersion}`} for ${minecraftVersion}`))
@@ -693,7 +832,6 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     showLauncherActivity(instance)
     if (code != null) {
       setConsoleState(code === 0 ? 'Finished' : `Exited (${code})`)
-      emit(mainWindow, 'launch:closed', { code })
     }
     // Windows can hold an open handle to a just-terminated Java process.
     // cleanupPayload() already retries locked files and remains idempotent.
@@ -701,6 +839,10 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
       appendConsole(`[MegaClient] Could not remove a temporary runtime file: ${String(error)}`, 'muted')
     } finally {
       if (activeLauncher === launcher) activeLauncher = null
+      launchReserved = false
+      activeInstanceId = null
+      // Report closure after protected files are cleaned and Play can be used again.
+      if (code != null) emit(mainWindow, 'launch:closed', { code })
     }
   }
 
@@ -708,22 +850,43 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
     void finishGameSession(code)
   })
 
-  const restoreEnvironment = secureChildEnvironment()
+  let restoreEnvironment: (() => void) | null = null
   try {
+    restoreEnvironment = secureChildEnvironment()
+    // Give Chromium a turn to paint the final preparation status before EML
+    // enters its installation pipeline (which may include synchronous setup).
+    await new Promise<void>((resolve) => setImmediate(resolve))
     await launcher.launch()
     await updateInstance(instance.id, { lastPlayedAt: new Date().toISOString() })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     appendConsole(`[Error] ${message}`, 'error')
     setConsoleState('Launch failed')
-    emit(mainWindow, 'launch:error', { message })
-    await finishGameSession()
+    // The IPC launch handler emits this error to the renderer once.
+    // Only launch_close can safely release a runtime after process spawn.
+    if (!gameSpawned) await finishGameSession()
     throw error
   } finally {
-    restoreEnvironment()
+    restoreEnvironment?.()
     // No Minecraft process was ever spawned, so there will be no close event.
     // Otherwise launch_close is the only owner of protected runtime cleanup.
     if (!gameSpawned) await finishGameSession()
+  }
+  } catch (error) {
+    // Also recover failures before a Launcher is constructed, such as an
+    // unavailable account, invalid loader metadata or failed Fabric setup.
+    if (!activeLauncher) {
+      appendConsole(`[Error] ${error instanceof Error ? error.message : String(error)}`, 'error')
+      setConsoleState('Launch failed')
+      if (stagedPayload) {
+        try { await stagedPayload.cleanup() } catch { /* best effort */ }
+      }
+      launchReserved = false
+      activeInstanceId = null
+      setGamePerformanceMode(mainWindow, false)
+      showLauncherActivity()
+    }
+    throw error
   }
 }
 

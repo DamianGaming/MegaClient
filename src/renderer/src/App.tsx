@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   AlertTriangle,
   Box,
@@ -13,7 +13,6 @@ import {
   Gauge,
   HardDrive,
   Home,
-  Clock3,
   Image,
   Info,
   Library,
@@ -33,6 +32,7 @@ import {
   Copy,
   Settings,
   ShieldCheck,
+  Shirt,
   SlidersHorizontal,
   Sparkles,
   Square,
@@ -40,9 +40,7 @@ import {
   Trash2,
   Upload,
   UserRound,
-  Users,
-  X,
-  Zap
+  X
 } from 'lucide-react'
 // Keep the canvas renderer out of the initial launcher bundle until cosmetics opens.
 const Skin3DPreview = lazy(() => import('./Skin3DPreview'))
@@ -58,11 +56,13 @@ interface BootStatus {
 }
 
 const CLIENT_FALLBACK_VERSION = '0.14.2'
-const LAUNCH_PHASES = ['security', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
+const LAUNCH_PHASES = ['profile', 'security', 'account', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
   return ({
+    profile: 'Minecraft profile',
     security: 'Safety checks',
+    account: 'Microsoft account',
     client: 'MegaClient files',
     prepare: 'Game files',
     download: 'Downloading',
@@ -218,6 +218,58 @@ const navItems: Array<{ id: Tab; label: string; icon: typeof Home }> = [
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
 
+const navGroups: Array<{ label: string; items: Tab[] }> = [
+  { label: 'Play', items: ['home', 'instances'] },
+  { label: 'Content', items: ['browse', 'manage', 'servers', 'cosmetics'] },
+  { label: 'Launcher', items: ['settings'] }
+]
+
+// An original pixel-art sunset used as the launcher's signature backdrop.
+// Drawn on an 8px grid so it stays crisp at any size and costs almost nothing to render.
+type SceneRect = [x: number, y: number, w: number, h: number, fill: string, opacity?: number]
+const SCENE_RECTS: SceneRect[] = (() => {
+  const r: SceneRect[] = []
+  const add = (x: number, y: number, w: number, h: number, fill: string, o?: number) => r.push([x, y, w, h, fill, o])
+  ;([[4, 1], [11, 2], [19, 1], [27, 3], [33, 1], [14, 4], [55, 4], [47, 2]] satisfies Array<[number, number]>).forEach(([x, y]) => add(x, y, 1, 1, '#ffffff', .55))
+  add(36, 8, 12, 12, '#ffd9a0', .08)
+  add(37, 9, 10, 10, '#ffd9a0', .12)
+  ;([[40, 9, 4], [39, 10, 6], [38, 11, 8], [38, 12, 8], [38, 13, 8], [38, 14, 8], [38, 15, 8], [39, 16, 6], [40, 17, 4]] satisfies Array<[number, number, number]>).forEach(([x, y, w]) => add(x, y, w, 1, '#fff0c7'))
+  add(6, 6, 8, 1, '#ffffff', .2); add(8, 5, 5, 1, '#ffffff', .2); add(7, 7, 6, 1, '#ffffff', .14)
+  add(22, 10, 7, 1, '#ffffff', .18); add(24, 9, 4, 1, '#ffffff', .18)
+  add(50, 6, 6, 1, '#ffffff', .18); add(52, 5, 3, 1, '#ffffff', .18)
+  ;([[0, 22, 12, 12], [12, 20, 8, 14], [20, 21, 10, 13], [30, 19, 9, 15], [39, 21, 9, 13], [48, 19, 12, 15]] satisfies Array<[number, number, number, number]>).forEach(([x, y, w, h]) => add(x, y, w, h, '#6b3f93'))
+  ;([[0, 24, 14, 10], [14, 23, 10, 11], [24, 25, 12, 9], [36, 23, 10, 11], [46, 24, 14, 10]] satisfies Array<[number, number, number, number]>).forEach(([x, y, w, h]) => add(x, y, w, h, '#432b7d'))
+  ;([[2, 27], [16, 27], [21, 28], [33, 28], [43, 27], [50, 28], [58, 27]] satisfies Array<[number, number]>).forEach(([x, y]) => {
+    add(x, y, 1, 2, '#35246c'); add(x - 1, y - 2, 3, 2, '#35246c'); add(x, y - 3, 1, 1, '#35246c')
+  })
+  ;([[6, 27], [13, 28], [19, 26], [26, 27], [31, 26], [38, 27], [41, 26], [47, 27], [54, 27]] satisfies Array<[number, number]>).forEach(([x, y]) => add(x, y, 1, 1, '#533a96'))
+  ;([[5, 25], [10, 26], [29, 26], [34, 25], [52, 25], [57, 26]] satisfies Array<[number, number]>).forEach(([x, y]) => {
+    add(x, y, 1, 4, '#251c58'); add(x - 2, y - 3, 5, 3, '#251c58'); add(x - 1, y - 5, 3, 2, '#251c58')
+  })
+  add(0, 29, 60, 1, '#63c471'); add(0, 30, 60, 1, '#3f9a54'); add(0, 31, 60, 3, '#4b3046')
+  ;([[3, 32], [9, 33], [15, 32], [22, 33], [28, 32], [35, 33], [41, 32], [47, 33], [53, 32], [58, 33], [12, 31], [31, 31], [50, 31]] satisfies Array<[number, number]>).forEach(([x, y]) => add(x, y, 1, 1, '#614159'))
+  ;([[7, 30], [19, 30], [26, 30], [44, 30], [56, 30]] satisfies Array<[number, number]>).forEach(([x, y]) => add(x, y, 1, 1, '#79dd86'))
+  return r
+})()
+
+function PixelScene({ className = '', align = 'xMid' }: { className?: string; align?: 'xMin' | 'xMid' | 'xMax' }) {
+  const id = useId().replace(/[^a-zA-Z0-9]/g, '')
+  return (
+    <svg className={`pixel-scene ${className}`} viewBox="0 0 480 272" preserveAspectRatio={`${align}YMax slice`} shapeRendering="crispEdges" aria-hidden="true">
+      <defs>
+        <linearGradient id={`sky${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#2a2470" />
+          <stop offset=".45" stopColor="#7d4aa8" />
+          <stop offset=".78" stopColor="#e0709a" />
+          <stop offset="1" stopColor="#ffb470" />
+        </linearGradient>
+      </defs>
+      <rect width="480" height="272" fill={`url(#sky${id})`} />
+      {SCENE_RECTS.map(([x, y, w, h, fill, o], index) => <rect key={index} x={x * 8} y={y * 8} width={w * 8} height={h * 8} fill={fill} opacity={o} />)}
+    </svg>
+  )
+}
+
 function formatBytes(value = 0): string {
   if (!value) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
@@ -271,7 +323,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.12.0')
+  const [version, setVersion] = useState('1.12.2')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -286,6 +338,7 @@ function App() {
     downloaded?: number
     total?: number
     speed?: number
+    overall?: number
   }>({ message: '' })
   const [update, setUpdate] = useState<any>(null)
   const [discordConfigured, setDiscordConfigured] = useState(false)
@@ -372,6 +425,7 @@ function App() {
   const progressTimer = useRef<number | null>(null)
   const queuedLaunchProgress = useRef<Parameters<Parameters<typeof window.mega.launchEvents.onProgress>[0]>[0] | null>(null)
   const progressLastAppliedAt = useRef(0)
+  const highestLaunchProgress = useRef(0)
   useEffect(() => {
     const applyQueued = () => {
       progressTimer.current = null
@@ -380,7 +434,11 @@ function App() {
       if (current) {
         progressLastAppliedAt.current = Date.now()
         setLaunching(true)
-        setLaunchProgress(current)
+        // Different loaders may report phases out of order. Keep the existing
+        // progress bars smooth while still displaying the current, real step.
+        const overall = Math.max(highestLaunchProgress.current, launchPhaseProgress(current.phase, current.progress))
+        highestLaunchProgress.current = overall
+        setLaunchProgress({ ...current, overall })
       }
     }
     const dispose = window.mega.launchEvents.onProgress((event) => {
@@ -401,6 +459,7 @@ function App() {
     if (progressTimer.current !== null) window.clearTimeout(progressTimer.current)
     progressTimer.current = null
     queuedLaunchProgress.current = null
+    highestLaunchProgress.current = 0
     setLaunching(false)
     notify(event.message ?? 'Minecraft failed to launch.', 'error')
   }), [notify])
@@ -411,6 +470,7 @@ function App() {
     if (progressTimer.current !== null) window.clearTimeout(progressTimer.current)
     progressTimer.current = null
     queuedLaunchProgress.current = null
+    highestLaunchProgress.current = 0
     setLaunching(false)
     setLaunchProgress({ message: '' })
     void bootstrap()
@@ -467,13 +527,17 @@ function App() {
     }
   }
 
-  const launch = async () => {
-    if (!selected) return notify('Create an instance first.', 'error')
+  const launch = async (id?: string) => {
+    const target = id ? instances.find((item) => item.id === id) : selected
+    if (!target) return notify('Create an instance first.', 'error')
     if (!account) return notify('Sign in with Microsoft before launching.', 'error')
+    if (launching) return
+    highestLaunchProgress.current = 0
     setLaunching(true)
     setLaunchProgress({ message: 'Preparing to launch', progress: 0 })
     try {
-      await window.mega.instances.launch(selected.id)
+      if (target.id !== selected?.id) await selectInstance(target.id)
+      await window.mega.instances.launch(target.id)
     } catch (error) {
       setLaunching(false)
       notify(errorMessage(error), 'error')
@@ -510,46 +574,37 @@ function App() {
           <span><strong>MegaClient</strong><small>MegaStudios</small></span>
         </button>
         <nav aria-label="Launcher navigation">
-          <div className="sidebar-section-label">LAUNCH</div>
-          {navItems.filter((item) => ['home', 'instances'].includes(item.id)).map((item) => (
-            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
-              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
-            </button>
-          ))}
-          <div className="sidebar-section-label">CONTENT</div>
-          {navItems.filter((item) => ['browse', 'manage', 'servers', 'cosmetics'].includes(item.id)).map((item) => (
-            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
-              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
-            </button>
-          ))}
-          <div className="sidebar-section-label">PREFERENCES</div>
-          {navItems.filter((item) => item.id === 'settings').map((item) => (
-            <button key={item.id} aria-label={item.label} title={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
-              <item.icon size={18} strokeWidth={1.8} /> <span>{item.label}</span>
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <div className="sidebar-section-label">{group.label}</div>
+              {group.items.map((id) => {
+                const item = navItems.find((entry) => entry.id === id)!
+                return (
+                  <button key={item.id} aria-label={item.label} aria-current={tab === item.id ? 'page' : undefined} className={tab === item.id ? 'active' : ''} onClick={() => { setAccountMenuOpen(false); setTab(item.id) }}>
+                    <item.icon size={21} strokeWidth={1.8} /> <span>{item.label}</span>
+                  </button>
+                )
+              })}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom" ref={accountMenuRef}>
           {accountMenuOpen && (
             <div className="account-menu">
+              <div className="account-menu-head"><img src={account.avatarUrl} alt="" /><span><strong>{account.name}</strong><small>Microsoft account</small></span></div>
               <button onClick={() => void switchAccount()} disabled={authenticating}><UserRound size={16} /><span>Switch account</span></button>
               <button className="danger" onClick={() => void signOut()}><LogOut size={16} /><span>Sign out</span></button>
             </div>
           )}
-          <button className={`account-mini ${accountMenuOpen ? 'open' : ''}`} onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen}>
+          <button className="rail-tool" aria-label="Launch console" onClick={() => window.mega.instances.openConsole()}><TerminalSquare size={20} /></button>
+          <button className={`account-mini ${accountMenuOpen ? 'open' : ''}`} onClick={() => setAccountMenuOpen((open) => !open)} aria-expanded={accountMenuOpen} aria-label={`Account: ${account.name}`}>
             <img src={account.avatarUrl} alt="" />
-            <span><strong>{account.name}</strong><small>Microsoft account</small></span>
-            <ChevronDown size={15} />
           </button>
-          <div className="version-line"><span className="online-dot" />MegaClient {version} · Client {clientVersion}</div>
         </div>
       </aside>
 
       <main className="content">
         <div className="workspace-topline">
-          <div className="workspace-location"><span>WORKSPACE</span><ChevronRight size={13} /><strong>{navItems.find((item) => item.id === tab)?.label ?? 'Home'}</strong></div>
-          <div className="workspace-tools"><span className="workspace-client"><i /> Client {clientVersion}</span><button title="Open launch console" aria-label="Open launch console" onClick={() => window.mega.instances.openConsole()}><TerminalSquare size={17} /></button></div>
-        </div>
         {update?.state === 'ready' && (
           <div className="update-banner">
             <Download size={17} />
@@ -560,35 +615,38 @@ function App() {
         {update?.pausedForGame && update?.state !== 'ready' && (
           <div className="update-banner quiet">
             <Gauge size={16} />
-            <span>{update?.state === 'available' ? `MegaClient ${update.version} was found. Its download will begin after Minecraft closes.` : 'Background update activity is paused while Minecraft is running.'}</span>
+            <span>{update?.state === 'available' ? `Update ${update.version} will download after Minecraft closes.` : 'Updates are paused while Minecraft runs.'}</span>
           </div>
         )}
         {update?.state === 'available' && !update?.pausedForGame && (
           <div className="update-banner quiet">
             <Download size={16} />
-            <span>MegaClient {update.version} was found and is starting its automatic download.</span>
+            <span>Downloading MegaClient {update.version}…</span>
           </div>
         )}
         {update?.state === 'downloading' && (
           <div className="update-banner quiet">
             <RefreshCw className="spin" size={16} />
-            <span>Downloading launcher update · {Math.round(update.percent ?? 0)}%{updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}</span>
+            <span>Downloading update · {Math.round(update.percent ?? 0)}%{updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}</span>
             <div className="banner-progress"><i style={{ width: `${Math.max(2, update.percent ?? 0)}%` }} /></div>
           </div>
         )}
         {launching && <ActivityBanner progress={launchProgress} onConsole={() => window.mega.instances.openConsole()} />}
+        </div>
         {tab === 'home' && (
           <HomeView
             selected={selected}
             launching={launching}
             progress={launchProgress}
-            clientVersion={clientVersion}
-            onLaunch={launch}
+            account={account}
+            instances={instances}
+            onLaunch={() => void launch()}
+            onLaunchInstance={(id: string) => void launch(id)}
             onInstances={() => setTab('instances')}
             onBrowse={() => setTab('browse')}
             onManage={() => setTab('manage')}
             onServers={() => setTab('servers')}
-            onConsole={() => window.mega.instances.openConsole()}
+            onCosmetics={() => setTab('cosmetics')}
           />
         )}
         {tab === 'instances' && settings && (
@@ -634,7 +692,8 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
       <Titlebar status={error ? 'Needs attention' : 'Starting'} />
       <main className="startup-workspace">
         <section className={`startup-card ${error ? 'has-error' : ''}`}>
-          <div className="startup-brand"><img src="./logo.png" alt="" /><div><strong>MegaClient</strong><span>MegaStudios</span></div></div>
+          <div className="startup-art" aria-hidden="true"><PixelScene align="xMax" /><img src="./logo.png" alt="" /></div>
+          <div className="startup-panel">
           {error ? (
             <>
               <div className="startup-error-icon"><AlertTriangle /></div>
@@ -644,7 +703,7 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
             </>
           ) : (
             <>
-              <div className="startup-heading"><div><small>GETTING THINGS READY</small><h1>{status.message}</h1><p>{status.detail ?? 'MegaClient is preparing your launcher.'}</p></div><span>{Math.round(value)}%</span></div>
+              <div className="startup-heading"><div><h1>{status.message}</h1>{status.detail && <p>{status.detail}</p>}</div><span>{Math.round(value)}%</span></div>
               <div className="startup-progress"><i style={{ width: `${value}%` }} /></div>
               <div className="startup-steps">
                 {steps.map((step) => {
@@ -653,9 +712,10 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
                   return <div key={step.label} className={done ? 'done' : active ? 'active' : ''}><span>{done ? <Check /> : active ? <RefreshCw className="spin" /> : <i />}</span><strong>{step.label}</strong></div>
                 })}
               </div>
-              <div className="startup-foot"><span><Clock3 /> {elapsed < 2 ? 'Starting now' : `${elapsed}s elapsed`}</span><small>{elapsed >= 12 ? 'Still working — Microsoft services can occasionally take a little longer.' : 'The launcher stays responsive while account and game data load.'}</small></div>
+              {elapsed >= 12 && <div className="startup-foot"><small>Still working — Microsoft services can occasionally take a little longer.</small></div>}
             </>
           )}
+          </div>
         </section>
       </main>
     </div>
@@ -663,7 +723,7 @@ function StartupView({ status, elapsed, error, onRetry, onClose }: {
 }
 
 function ActivityBanner({ progress, onConsole }: { progress: any; onConsole: () => void }) {
-  const overall = launchPhaseProgress(progress.phase, progress.progress)
+  const overall = (progress.overall ?? launchPhaseProgress(progress.phase, progress.progress))
   const percent = Math.round(overall * 100)
   return (
     <div className="activity-banner" aria-live="polite">
@@ -714,7 +774,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.12.0',
+    launcherVersion: '1.12.2',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -756,18 +816,14 @@ export function SplashWindow() {
 
   return (
     <div className={`splash compact-splash separate-splash ${leaving ? 'is-leaving' : ''}`}>
-      <div className="splash-ambient splash-ambient-one" />
-      <div className="splash-ambient splash-ambient-two" />
+      <PixelScene className="splash-scene" />
       <section className="splash-surface">
         <div className="splash-mark"><img src="./logo.png" alt="" /></div>
         <div className="splash-copy">
-          <small>SECURE LAUNCHER STARTUP</small>
           <strong>MegaClient</strong>
           <span>{progress.message}</span>
-          <p>{progress.detail}</p>
         </div>
         <span className="splash-percent">{roundedProgress}%</span>
-        <div className="splash-version">Launcher {progress.launcherVersion} <i /> Client {progress.clientVersion}</div>
         <div className="splash-progress" aria-label={`Loading ${roundedProgress}%`}><i style={{ width: `${visualProgress}%` }} /></div>
       </section>
     </div>
@@ -779,21 +835,26 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
     <div className="login-shell clean-login">
       <Titlebar />
       <section className="login-card">
-        <div className="login-brand">
-          <div className="login-logo-wrap"><img src="./logo.png" alt="" /></div>
-          <div><strong>MegaClient</strong><small>by MegaStudios</small></div>
+        <div className="login-art" aria-hidden="true">
+          <PixelScene align="xMax" />
+          <img src="./logo.png" alt="" />
         </div>
-        <div className="login-copy">
-          <span className="login-eyebrow">WELCOME BACK</span>
-          <h1>Just Minecraft.<br /><em>Your way.</em></h1>
-          <p>Sign in to get to your instances, mods and worlds. Everything stays organised, just how you left it.</p>
+        <div className="login-panel">
+          <div className="login-brand">
+            <div className="login-logo-wrap"><img src="./logo.png" alt="" /></div>
+            <div><strong>MegaClient</strong><small>by MegaStudios</small></div>
+          </div>
+          <div className="login-copy">
+            <h1>Just Minecraft.<br /><em>Your way.</em></h1>
+            <p>Sign in to pick up where you left off.</p>
+          </div>
+          <button className="microsoft-login" onClick={onLogin} disabled={loading}>
+            <span className="ms-symbol"><i /><i /><i /><i /></span>
+            <span>{loading ? 'Opening Microsoft sign-in…' : 'Continue with Microsoft'}</span>
+            {loading ? <RefreshCw className="spin" size={18} /> : <ChevronRight size={18} />}
+          </button>
+          <div className="login-details"><span>Launcher {version}</span></div>
         </div>
-        <button className="microsoft-login" onClick={onLogin} disabled={loading}>
-          <span className="ms-symbol"><i /><i /><i /><i /></span>
-          <span>{loading ? 'Opening Microsoft sign-in…' : 'Continue with Microsoft'}</span>
-          {loading ? <RefreshCw className="spin" size={18} /> : <ChevronRight size={18} />}
-        </button>
-        <div className="login-details"><span>Secure Microsoft sign-in</span><span>Launcher {version}</span></div>
       </section>
     </div>
   )
@@ -814,69 +875,101 @@ function Titlebar({ status }: { status?: string } = {}) {
   )
 }
 
-function PageHeading({ eyebrow, title, description, actions }: {
-  eyebrow?: string
+function PageHeading({ title, description, actions }: {
   title: string
-  description: string
+  description?: string
   actions?: React.ReactNode
 }) {
   return (
     <div className="page-heading">
-      <div>{eyebrow && <small>{eyebrow}</small>}<h1>{title}</h1><p>{description}</p></div>
+      <div><h1>{title}</h1>{description && <p>{description}</p>}</div>
       {actions && <div className="heading-actions">{actions}</div>}
     </div>
   )
 }
 
-function HomeView({ selected, launching, progress, clientVersion, onLaunch, onInstances, onBrowse, onManage, onServers, onConsole }: any) {
-  const loader = selected ? loaderLabel(selected.loader) : 'Not configured'
+function HomeView({ account, instances, selected, launching, progress, onLaunch, onLaunchInstance, onInstances, onBrowse, onManage, onServers, onCosmetics }: any) {
+  const loader = selected ? loaderLabel(selected.loader) : ''
+  const percent = Math.round((progress.overall ?? launchPhaseProgress(progress.phase, progress.progress)) * 100)
+  const others: Instance[] = useMemo(
+    () => instances.filter((item: Instance) => item.id !== selected?.id).sort((a: Instance, b: Instance) => (b.lastPlayedAt ?? '').localeCompare(a.lastPlayedAt ?? '')).slice(0, 2),
+    [instances, selected?.id]
+  )
+  const banners = [
+    { action: onBrowse, icon: Search, title: 'Discover', tone: 'one' },
+    { action: onManage, icon: Layers3, title: 'Your content', tone: 'two' },
+    { action: onServers, icon: Server, title: 'Servers', tone: 'three' },
+    { action: onCosmetics, icon: Shirt, title: 'Skin & cape', tone: 'four' }
+  ]
   return (
     <div className="page home-page">
-      <header className="home-intro">
-        <div className="home-intro-text">
-          <span className="home-section-index">01 / PLAY</span>
-          <h1>Pick up where you left off<span className="intro-period">.</span></h1>
-          <p>Select an instance and head straight back into Minecraft.</p>
-        </div>
-        <span className="home-headline-tag"><span className="online-dot" /> {launching ? 'PREPARING SESSION' : 'LAUNCHER READY'}</span>
+      <header className="home-welcome">
+        <img src={account.avatarUrl} alt="" />
+        <h1>Welcome back, <em>{account.name}</em></h1>
       </header>
 
-      <div className="home-layout">
-        <section className="play-workspace" aria-label="Current Minecraft instance">
-          <div className="play-topline"><span>CURRENT INSTANCE</span><button onClick={onInstances}>Switch instance <ChevronRight size={14} /></button></div>
-          <div className="play-instance-body">
-            <div className="play-instance-emblem" aria-hidden="true">{selected?.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={30} strokeWidth={1.6}/>}</div>
-            <div className="play-instance-copy">
-              <span>{selected?.customClient ? `MEGACLIENT ${clientVersion}` : `MINECRAFT · ${loader.toUpperCase()}`}</span>
-              <h2>{selected?.name ?? 'Choose your instance'}</h2>
-              <p>{selected ? `${selected.minecraftVersion}  /  ${loader}${selected.loaderVersion ? ` ${selected.loaderVersion}` : ''}` : 'Create or import a profile to get started.'}</p>
-            </div>
+      <div className="home-grid">
+        <div className="home-main">
+          <div className="play-workspace">
+            <section className={`hero ${launching ? 'is-launching' : ''}`} aria-label="Current Minecraft instance">
+              <PixelScene className="hero-scene" />
+              <div className="hero-shade" aria-hidden="true" />
+              <div className="hero-character">
+                <span className="hero-nametag">{account.name}</span>
+                <img src={account.avatarUrl} alt="" />
+              </div>
+              <div className="hero-body">
+                {launching && (
+                  <div className="play-live-progress">
+                    <div><span>{progress.message || 'Preparing Minecraft'}</span><strong>{percent}%</strong></div>
+                    <div className="progress"><i style={{ width: `${Math.max(4, percent)}%` }} /></div>
+                  </div>
+                )}
+                <button className="primary play-primary" onClick={onLaunch} disabled={launching || !selected}>
+                  {launching ? <RefreshCw size={20} className="spin" /> : <Play size={20} fill="currentColor" />}
+                  <span className="play-label"><strong>{launching ? 'Launching…' : 'Play'}</strong><small>{selected ? selected.name : 'Create an instance to begin'}</small></span>
+                </button>
+                {selected && (
+                  <div className="hero-chips">
+                    <span>{loader} {selected.minecraftVersion}</span>
+                    <button onClick={onInstances}>Switch</button>
+                  </div>
+                )}
+              </div>
+            </section>
           </div>
-          {launching && (
-            <div className="play-live-progress">
-              <div><span>{progress.message || 'Preparing Minecraft'}</span><strong>{Math.round(launchPhaseProgress(progress.phase, progress.progress) * 100)}%</strong></div>
-              <div className="progress"><i style={{ width: `${Math.max(4, launchPhaseProgress(progress.phase, progress.progress) * 100)}%` }} /></div>
-            </div>
+
+          {others.length > 0 && (
+            <section className="recent" aria-label="Quick launch">
+              <div className="recent-head"><span>Quick launch</span></div>
+              <div className="recent-list">
+                {others.map((item) => (
+                  <article key={item.id} className="recent-row">
+                    <div className="recent-icon">{item.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={22} />}</div>
+                    <div className="recent-copy"><strong>{item.name}</strong><small>{item.minecraftVersion} · {loaderLabel(item.loader)}</small></div>
+                    <button className="primary recent-play" disabled={launching} onClick={() => onLaunchInstance(item.id)}><Play size={14} fill="currentColor" /> Play</button>
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
-          <div className="play-control-row">
-            <button className="primary play-primary" onClick={onLaunch} disabled={launching || !selected}>
-              {launching ? <RefreshCw size={18} /> : <Play size={18} fill="currentColor" />}
-              <span>{launching ? 'Launching Minecraft' : 'Play now'}</span>
-              {!launching && <ChevronRight size={18} />}
-            </button>
-            <button className="play-console" title="Open game console" aria-label="Open game console" onClick={onConsole}><TerminalSquare size={18}/></button>
+
+          <div className="home-actions">
+            <button className="primary" onClick={onInstances}><Library size={16} /> Manage profiles</button>
+            <button className="secondary" onClick={onBrowse}><Plus size={16} /> Add mods</button>
           </div>
-        </section>
+        </div>
 
         <aside className="home-command-list" aria-label="Quick actions">
-          <div className="command-list-head"><span>YOUR SPACE</span><span>THINGS TO DO</span></div>
-          <button onClick={onInstances} className="command-row"><span className="command-index">01</span><span className="command-icon"><Library size={20} /></span><span className="command-info"><strong>Instances</strong><small>Create, import and switch profiles</small></span><ChevronRight size={17}/></button>
-          <button onClick={onBrowse} className="command-row"><span className="command-index">02</span><span className="command-icon"><Search size={20} /></span><span className="command-info"><strong>Discover</strong><small>Explore new content on Modrinth</small></span><ChevronRight size={17}/></button>
-          <button onClick={onManage} className="command-row"><span className="command-index">03</span><span className="command-icon"><Layers3 size={20} /></span><span className="command-info"><strong>Your content</strong><small>Mods, shaders, worlds and packs</small></span><ChevronRight size={17}/></button>
-          <button onClick={onServers} className="command-row"><span className="command-index">04</span><span className="command-icon"><Server size={20} /></span><span className="command-info"><strong>Servers</strong><small>Connect and play together</small></span><ChevronRight size={17}/></button>
+          {banners.map((banner) => (
+            <button key={banner.title} onClick={banner.action} className={`banner-card ${banner.tone}`}>
+              <banner.icon className="banner-icon" size={72} strokeWidth={1.3} />
+              <strong>{banner.title}</strong>
+              <ChevronRight size={18} className="banner-arrow" />
+            </button>
+          ))}
         </aside>
       </div>
-      <footer className="home-footerline"><span>MEGACLIENT <strong>{clientVersion}</strong></span><span>SEPARATE INSTANCES · YOUR FILES STAY LOCAL</span><span>READY FOR NEXT SESSION</span></footer>
     </div>
   )
 }
@@ -897,14 +990,13 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
   return (
     <div className="page">
       <PageHeading
-        eyebrow="Library"
         title="Instances"
-        description="Separate Minecraft setups with their own content and saves."
         actions={<div className="heading-actions"><button className="secondary" onClick={() => setShowImport(true)}><Upload size={16} /> Import</button><button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> New instance</button></div>}
       />
       <div className="instance-grid">
         {instances.map((instance: Instance) => (
           <article key={instance.id} className={`instance-card ${selectedId === instance.id ? 'selected' : ''}`} onClick={() => onSelect(instance.id)}>
+            <div className="instance-art" aria-hidden="true" style={{ ['--hue' as any]: ({ vanilla: 145, fabric: 255, forge: 18, neoforge: 28 } as Record<string, number>)[instance.loader] ?? 255 }}><b>{instance.minecraftVersion}</b>{selectedId === instance.id && <span className="instance-check"><Check size={13} /> Selected</span>}</div>
             <div className="instance-card-top">
               <div className="instance-icon big">{instance.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={25} />}</div>
               <div className="instance-actions">
@@ -912,9 +1004,8 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
                 <button title="Delete" className="danger-icon" onClick={(event) => { event.stopPropagation(); setPendingDelete(instance) }}><Trash2 size={16} /></button>
               </div>
             </div>
-            <h3>{instance.name}</h3><p>Minecraft {instance.minecraftVersion}</p>
+            <h3>{instance.name}</h3>
             <div className="badges"><span>{loaderLabel(instance.loader)}</span>{instance.customClient && <span className="gradient-badge">MegaClient</span>}</div>
-            <div className="card-footer"><small>{instance.lastPlayedAt ? `Played ${new Date(instance.lastPlayedAt).toLocaleDateString('en-GB')}` : 'Not played yet'}</small>{selectedId === instance.id && <span><Check size={13} /> Selected</span>}</div>
           </article>
         ))}
       </div>
@@ -1241,7 +1332,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
     if (loader !== 'vanilla' && !loaderVersion) return notify(loaderError || `${loaderLabel(loader)} does not support this Minecraft version.`, 'error')
     setBusy(true)
     try {
-      await window.mega.instances.create({ name: name.trim(), minecraftVersion: mcVersion, loader, loaderVersion, customClient: custom })
+      await window.mega.instances.create({ name: name.trim(), minecraftVersion: mcVersion, loader, loaderVersion, customClient: custom, autoUpdateLoader: custom || (loader !== 'vanilla' && loaderVersion === loaderVersions[0]) })
       await onCreated()
     } catch (error) {
       notify(errorMessage(error), 'error')
@@ -1397,9 +1488,8 @@ function BrowseView({ selected, onChanged, notify }: { selected?: Instance; onCh
   return (
     <div className="page discover-page">
       <PageHeading
-        eyebrow="Discover"
-        title="Find new content"
-        description={selected ? `${selected.name} · Minecraft ${selected.minecraftVersion}` : 'Select an instance before installing.'}
+        title="Discover"
+        description={selected ? `Installing to ${selected.name} · ${selected.minecraftVersion}` : 'Select an instance before installing.'}
       />
       <div className="browse-toolbar stacked-toolbar" ref={listRef}>
         <div className="segmented discover-types">
@@ -1476,15 +1566,15 @@ function ManageView({ selected, notify }: { selected?: Instance; notify: (messag
   return (
     <div className="page manage-page">
       <PageHeading
-        eyebrow={selected?.name ?? 'No instance selected'}
         title="Manage"
-        description="Everything installed for the selected instance, kept in one place."
+        description={selected?.name ?? 'No instance selected'}
       />
-      <div className="segmented manage-tabs" role="tablist" aria-label="Content management">
-        <button className={section === 'mods' ? 'active' : ''} onClick={() => setSection('mods')}><Box size={16} /> Mods</button>
-        <button className={section === 'resourcepacks' ? 'active' : ''} onClick={() => setSection('resourcepacks')}><Image size={16} /> Resource packs</button>
-        <button className={section === 'shaders' ? 'active' : ''} onClick={() => setSection('shaders')}><Sparkles size={16} /> Shaders</button>
-        <button className={section === 'worlds' ? 'active' : ''} onClick={() => setSection('worlds')}><Map size={16} /> Worlds</button>
+      <div className="manage-layout">
+      <div className="manage-tabs" role="tablist" aria-label="Content management">
+        <button role="tab" aria-selected={section === 'mods'} className={section === 'mods' ? 'active' : ''} onClick={() => setSection('mods')}><Box size={16} /> Mods</button>
+        <button role="tab" aria-selected={section === 'resourcepacks'} className={section === 'resourcepacks' ? 'active' : ''} onClick={() => setSection('resourcepacks')}><Image size={16} /> Resource packs</button>
+        <button role="tab" aria-selected={section === 'shaders'} className={section === 'shaders' ? 'active' : ''} onClick={() => setSection('shaders')}><Sparkles size={16} /> Shaders</button>
+        <button role="tab" aria-selected={section === 'worlds'} className={section === 'worlds' ? 'active' : ''} onClick={() => setSection('worlds')}><Map size={16} /> Worlds</button>
       </div>
       <div className="manage-surface">
         {section === 'mods' && <ModsManager selected={selected} notify={notify} />}
@@ -1492,14 +1582,15 @@ function ManageView({ selected, notify }: { selected?: Instance; notify: (messag
         {section === 'shaders' && <PacksManager selected={selected} type="shader" notify={notify} />}
         {section === 'worlds' && <WorldsManager selected={selected} notify={notify} />}
       </div>
+      </div>
     </div>
   )
 }
 
-function ManagerHeading({ title, description, actions }: { title: string; description: string; actions?: React.ReactNode }) {
+function ManagerHeading({ title, description, actions }: { title: string; description?: string; actions?: React.ReactNode }) {
   return (
     <div className="manager-heading">
-      <div><h2>{title}</h2><p>{description}</p></div>
+      <div><h2>{title}</h2>{description && <p>{description}</p>}</div>
       {actions && <div className="heading-actions">{actions}</div>}
     </div>
   )
@@ -1578,7 +1669,6 @@ function ModsManager({ selected, notify }: { selected?: Instance; notify: (messa
     <section className="manager-section">
       <ManagerHeading
         title="Mods"
-        description="Enable, disable, update or remove mods for this instance."
         actions={<><button className="secondary" disabled={!selected} onClick={addLocal}><Upload size={16} /> Add JAR</button><button className="primary" disabled={!selected} onClick={updateAll}><RefreshCw size={16} /> Update all</button></>}
       />
       {progress && <ProgressStrip progress={progress} />}
@@ -1644,7 +1734,6 @@ function PacksManager({ selected, type, notify }: { selected?: Instance; type: '
     <section className="manager-section">
       <ManagerHeading
         title={label}
-        description={`Manage ${label.toLowerCase()} installed for this instance.`}
         actions={<button className="secondary" disabled={!selected} onClick={() => selected && window.mega.packs.openFolder(selected.id, type)}><FolderOpen size={16} /> Open folder</button>}
       />
       {loading && !packs.length && <LoadingRows count={4} compact />}
@@ -1720,7 +1809,6 @@ function WorldsManager({ selected, notify }: { selected?: Instance; notify: (mes
     <section className="manager-section">
       <ManagerHeading
         title="Worlds"
-        description="Import, download and manage worlds for this instance."
         actions={<><button className="secondary" disabled={!selected} onClick={() => selected && window.mega.worlds.openFolder(selected.id)}><FolderOpen size={16} /> Saves folder</button><button className="secondary" disabled={!selected} onClick={importWorld}><Upload size={16} /> Import ZIP</button><button className="primary" disabled={!selected} onClick={() => setDownloadOpen(true)}><Download size={16} /> Download world</button></>}
       />
       {progress && <ProgressStrip progress={progress} />}
@@ -1806,33 +1894,37 @@ function ServersView({ selected, launching, notify }: { selected?: Instance; lau
   }
 
   return (
-    <div className="page">
+    <div className="page servers-page">
       <PageHeading
-        eyebrow="Featured"
-        title="Partner servers"
-        description="Live server details and one-click joining."
+        title="Servers"
         actions={<button className="secondary" disabled={refreshing || launching} onClick={() => void refresh(true)}><RefreshCw className={refreshing ? 'spin' : ''} size={16} /> Refresh</button>}
       />
       <div className="server-grid">
         {partnerServers.map((server) => {
           const status = statuses[server.id]
+          const online = status?.players?.online
+          const max = status?.players?.max
+          const fill = status?.online && max ? Math.min(100, Math.round(((online ?? 0) / max) * 100)) : 0
+          const ping = status?.latency
+          const pingTone = ping == null ? '' : ping < 80 ? '' : ping < 160 ? 'mid' : 'high'
           return (
             <article className={`server-card live-server-card ${status?.online ? 'online' : status ? 'offline' : 'loading'}`} key={server.id}>
               <div className="server-art">
+                <PixelScene />
                 {status?.icon ? <img src={status.icon} alt={`${server.name} server icon`} /> : <Server size={42} />}
-                <span>{status?.online ? 'Online' : status ? 'Offline' : 'Checking'}</span>
               </div>
               <div className="server-copy">
-                <div className="server-title-row"><h2>{server.name}</h2><span className={`server-state ${status?.online ? 'online' : 'offline'}`}><i />{status?.online ? 'Online' : status ? 'Offline' : 'Checking'}</span></div>
-                <p>{status?.motd || (status?.online ? 'Minecraft server' : status?.error || 'Checking server status…')}</p>
-                <div className="server-live-meta">
-                  <span><Users size={14} />{status?.online ? `${status.players?.online ?? 0} / ${status.players?.max ?? 0}` : '—'}</span>
-                  <span><Gamepad2 size={14} />{status?.version ?? '—'}</span>
-                  <span><Clock3 size={14} />{status?.latency != null ? `${status.latency} ms` : '—'}</span>
+                <div className="server-title-row"><h2>{server.name}</h2><span className={`server-state ${status?.online ? 'online' : status ? 'offline' : ''}`}><i />{status?.online ? 'Online' : status ? 'Offline' : 'Checking'}</span></div>
+                <p className="server-motd">{status?.motd || (status?.online ? 'Minecraft server' : status?.error || 'Checking server status…')}</p>
+                <div className="server-stats">
+                  <div className="server-stat"><span>Players</span><strong>{status?.online ? (online ?? 0) : '—'}{status?.online && max ? <small>/ {max}</small> : null}</strong><div className="meter"><i style={{ width: `${fill}%` }} /></div></div>
+                  <div className="server-stat"><span>Latency</span><strong>{ping != null ? <span className={`ping ${pingTone}`}><i />{ping} ms</span> : '—'}</strong></div>
                 </div>
-                <button className="server-address" onClick={() => copy(server.address)}><span>{server.address}</span><Copy size={15} /></button>
+                <div className="server-actions">
+                  <button className="server-address" title="Copy server address" onClick={() => copy(server.address)}><span>{server.address}</span><Copy size={16} /></button>
+                  <button className="primary" disabled={!selected || launching} onClick={() => play(server.address)}>{launching ? <RefreshCw className="spin" /> : <Play fill="currentColor" />} Play</button>
+                </div>
               </div>
-              <button className="primary large" disabled={!selected || launching} onClick={() => play(server.address)}>{launching ? <RefreshCw className="spin" /> : <Play fill="currentColor" />} Play</button>
             </article>
           )
         })}
@@ -1920,17 +2012,17 @@ function CosmeticsView({ account, notify }: {
 
   return (
     <div className="page cosmetics-page">
-      <PageHeading eyebrow="Appearance" title="Skin & cape" description={`Preview and update ${account.name}'s Minecraft look.`} />
+      <PageHeading title="Skin & cape" />
       {profileError && !profile && (
         <div className="notice cosmetics-service-notice">
           <AlertTriangle />
-          <div><strong>Appearance is temporarily unavailable</strong><p>{profileError}</p></div>
+          <div><strong>Appearance is unavailable right now</strong><p>{profileError}</p></div>
           <button className="secondary" disabled={loading} onClick={() => load(true)}>{loading ? 'Retrying…' : 'Retry'}</button>
         </div>
       )}
       <div className="profile-grid refined-profile-grid">
         <section className="panel skin-panel clean-skin-panel">
-          <div className="panel-title"><span>3D preview</span><button title="Refresh profile" disabled={loading} onClick={() => load(true)}><RefreshCw className={loading ? 'spin' : ''} size={15} /></button></div>
+          <div className="panel-title"><span>Preview</span><button title="Refresh profile" disabled={loading} onClick={() => load(true)}><RefreshCw className={loading ? 'spin' : ''} size={15} /></button></div>
           <div className="skin-preview interactive-preview real-3d-preview">
             <Suspense fallback={<div className="skin3d-loading">Preparing character preview…</div>}>
               <Skin3DPreview skinUrl={skinUrl} capeUrl={capeUrl} slim={(activeSkin?.variant ?? variant) === 'slim'} loading={loading} />
@@ -1948,7 +2040,7 @@ function CosmeticsView({ account, notify }: {
               {action === 'skin-picker' ? 'Choosing skin…' : action === 'skin-upload' ? 'Uploading…' : 'Upload skin'}
             </button>
           </div>
-          {action?.startsWith('skin-') && <div className="cosmetic-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'skin-picker' ? 'Waiting for a PNG skin selection' : 'Uploading and applying your skin through Minecraft Services'}</span></div>}
+          {action?.startsWith('skin-') && <div className="cosmetic-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'skin-picker' ? 'Choose a PNG skin…' : 'Uploading your skin…'}</span></div>}
         </section>
 
         <section className="panel cape-panel">
@@ -1962,8 +2054,8 @@ function CosmeticsView({ account, notify }: {
               </button>
             ))}
           </div>
-          {!loading && !profile?.capes.length && <div className="empty-compact"><Image /><h3>No capes found</h3><p>Your owned Java Edition capes will appear here.</p></div>}
-          {action && !action.startsWith('skin-') && <div className="cosmetic-action-status cape-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'hide' ? 'Hiding your active cape' : 'Equipping your selected cape'}</span></div>}
+          {!loading && !profile?.capes.length && <div className="empty-compact"><Image /><h3>No capes found</h3><p>Capes you own will appear here.</p></div>}
+          {action && !action.startsWith('skin-') && <div className="cosmetic-action-status cape-action-status" role="status" aria-live="polite"><RefreshCw className="spin" size={13} /><span>{action === 'hide' ? 'Hiding cape…' : 'Equipping cape…'}</span></div>}
           {Boolean(profile?.capes.length) && <button className="secondary hide-cape" disabled={Boolean(action) || !activeCape} onClick={() => cape(undefined)}>{action === 'hide' ? <RefreshCw className="spin" /> : <X />} Hide cape</button>}
         </section>
       </div>
@@ -1996,44 +2088,55 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
     }
   }
 
+  const jump = (id: string) => document.getElementById(`settings-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const sections = [
+    { id: 'performance', label: 'Performance', icon: SlidersHorizontal },
+    { id: 'window', label: 'Game window', icon: Monitor },
+    { id: 'launch', label: 'Launch', icon: TerminalSquare },
+    { id: 'updates', label: 'Updates', icon: RefreshCw },
+    { id: 'protection', label: 'Protection', icon: ShieldCheck },
+    { id: 'java', label: 'Java', icon: HardDrive }
+  ]
   const commitMemory = () => void patch({ memoryMin: draft.memoryMin, memoryMax: draft.memoryMax })
   const commitWindow = () => void patch({ width: draft.width, height: draft.height })
 
   return (
     <div className="page">
-      <PageHeading eyebrow="Launcher" title="Settings" description="Performance, launch and update preferences." />
+      <PageHeading title="Settings" />
       <div className="settings-layout">
-        <section className="settings-section">
-          <div className="settings-title"><SlidersHorizontal /><div><h3>Performance</h3><p>Memory allocated to Minecraft</p></div></div>
+        <nav className="settings-nav" aria-label="Settings sections">
+          {sections.map((entry) => <button key={entry.id} onClick={() => jump(entry.id)}><entry.icon size={16} />{entry.label}</button>)}
+        </nav>
+        <div className="settings-body">
+        <section className="settings-section" id="settings-performance">
+          <div className="settings-title"><SlidersHorizontal /><div><h3>Performance</h3></div></div>
           <div className="setting-row"><div><strong>Maximum memory</strong><small>{(draft.memoryMax / 1024).toFixed(1)} GB</small></div><input type="range" min="2048" max="32768" step="512" value={draft.memoryMax} onChange={(event) => setDraft({ ...draft, memoryMax: Number(event.target.value) })} onPointerUp={commitMemory} onKeyUp={commitMemory} /></div>
           <div className="setting-row"><div><strong>Minimum memory</strong><small>{(draft.memoryMin / 1024).toFixed(1)} GB</small></div><input type="range" min="512" max={Math.max(1024, draft.memoryMax - 512)} step="512" value={draft.memoryMin} onChange={(event) => setDraft({ ...draft, memoryMin: Number(event.target.value) })} onPointerUp={commitMemory} onKeyUp={commitMemory} /></div>
-          <div className="settings-hint"><Cpu size={14} /><span>4–8 GB is suitable for most modded instances. Excessive allocation can make Java pauses worse.</span></div>
-          <div className="settings-hint"><Gauge size={14} /><span>While Minecraft runs, MegaClient automatically lowers its own priority and pauses update downloads, server polling and expensive background checks.</span></div>
+          <div className="settings-hint"><Cpu size={14} /><span>4–8 GB suits most modded instances.</span></div>
         </section>
 
-        <section className="settings-section">
-          <div className="settings-title"><Monitor /><div><h3>Game window</h3><p>Initial Minecraft window size</p></div></div>
+        <section className="settings-section" id="settings-window">
+          <div className="settings-title"><Monitor /><div><h3>Game window</h3></div></div>
           <div className="two-inputs">
             <label>Width<input type="number" min="640" max="7680" value={draft.width} onChange={(event) => setDraft({ ...draft, width: Number(event.target.value) })} onBlur={commitWindow} /></label>
             <label>Height<input type="number" min="360" max="4320" value={draft.height} onChange={(event) => setDraft({ ...draft, height: Number(event.target.value) })} onBlur={commitWindow} /></label>
           </div>
-          <SettingToggle title="Start in fullscreen" description="Launch Minecraft directly in fullscreen mode." checked={draft.fullscreen} onChange={(value) => patch({ fullscreen: value })} />
+          <SettingToggle title="Start in fullscreen" description="Launch Minecraft in fullscreen." checked={draft.fullscreen} onChange={(value) => patch({ fullscreen: value })} />
         </section>
 
-        <section className="settings-section">
-          <div className="settings-title"><TerminalSquare /><div><h3>Launch behaviour</h3><p>Console and launcher visibility</p></div></div>
-          <SettingToggle title="Open launch console" description="Show a separate live log window. Leave this off for the lowest overhead with very chatty Fabric modpacks." checked={draft.showConsole} onChange={(value) => patch({ showConsole: value })} />
-          <SettingToggle title="Move launcher to tray while playing" description="Hide MegaClient when Minecraft starts and restore it when the game closes." checked={draft.minimizeToTrayOnLaunch} onChange={(value) => patch({ minimizeToTrayOnLaunch: value })} />
-          <SettingToggle title="Discord activity status" description={discordConfigured ? 'Show whether you are browsing, launching or playing through MegaClient.' : 'Requires a MegaClient Discord application ID in the release configuration.'} checked={draft.discordActivity} onChange={(value) => patch({ discordActivity: value })} />
-          {!discordConfigured && <div className="settings-hint warning"><Info size={14} /><span>Discord activity is ready but not configured in this build. Add the application ID before publishing.</span></div>}
-          <SettingToggle title="Reduce interface motion" description="Disable non-essential movement while keeping transitions responsive." checked={draft.reducedMotion} onChange={(value) => patch({ reducedMotion: value })} />
+        <section className="settings-section" id="settings-launch">
+          <div className="settings-title"><TerminalSquare /><div><h3>Launch</h3></div></div>
+          <SettingToggle title="Open launch console" description="Show a live log window while playing." checked={draft.showConsole} onChange={(value) => patch({ showConsole: value })} />
+          <SettingToggle title="Move launcher to tray while playing" description="Hide MegaClient while Minecraft runs." checked={draft.minimizeToTrayOnLaunch} onChange={(value) => patch({ minimizeToTrayOnLaunch: value })} />
+          <SettingToggle title="Discord activity status" description={discordConfigured ? 'Show what you’re playing on Discord.' : 'Needs a Discord application ID.'} checked={draft.discordActivity} onChange={(value) => patch({ discordActivity: value })} />
+          <SettingToggle title="Reduce interface motion" description="Cut non-essential movement." checked={draft.reducedMotion} onChange={(value) => patch({ reducedMotion: value })} />
         </section>
 
-        <section className="settings-section">
-          <div className="settings-title"><RefreshCw /><div><h3>Updates & versions</h3><p>Keep MegaClient current</p></div></div>
+        <section className="settings-section" id="settings-updates">
+          <div className="settings-title"><RefreshCw /><div><h3>Updates</h3></div></div>
           <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2</strong></span></div>
-          <SettingToggle title="Automatic update checks" description="Scan automatically and download updates in the background, except while Minecraft is launching or running." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
-          <SettingToggle title="Show snapshots" description="Include Minecraft snapshots in the instance version list." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
+          <SettingToggle title="Automatic update checks" description="Download updates in the background." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
+          <SettingToggle title="Show snapshots" description="Include snapshots in version lists." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
           <div className="update-row update-status-row">
             <span>
               <strong>{update?.pausedForGame ? (update?.state === 'available' ? `Version ${update.version} will download after Minecraft closes` : 'Update activity paused while Minecraft is running') : update?.state === 'checking' ? 'Checking automatically…' : update?.state === 'downloading' ? `Downloading update · ${Math.round(update.percent ?? 0)}%${updateTransferLabel(update) ? ` · ${updateTransferLabel(update)}` : ''}` : update?.state === 'ready' ? `Version ${update.version} is ready` : update?.state === 'current' ? 'MegaClient is up to date' : update?.state === 'offline' ? 'Waiting for an internet connection' : update?.state === 'error' ? (update.message ?? 'The last update scan could not finish') : 'Automatic update scanning is ready'}</strong>
@@ -2045,15 +2148,16 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
           </div>
         </section>
 
-        <section className="settings-section full security-locked compact-security">
-          <div className="settings-title"><ShieldCheck /><div><h3>Launch protection</h3><p>High-confidence checks run automatically without blocking normal mods for compatibility references or addon filenames.</p></div><span className="always-on"><Lock size={12} /> Always on</span></div>
+        <section className="settings-section full security-locked compact-security" id="settings-protection">
+          <div className="settings-title"><ShieldCheck /><div><h3>Launch protection</h3><p>Checked automatically on every launch.</p></div><span className="always-on"><Lock size={12} /> Always on</span></div>
         </section>
 
-        <section className="settings-section full">
-          <div className="settings-title"><HardDrive /><div><h3>Java runtime</h3><p>Automatic Java installs the correct runtime for each Minecraft version.</p></div></div>
+        <section className="settings-section full" id="settings-java">
+          <div className="settings-title"><HardDrive /><div><h3>Java</h3><p>Installed automatically for each Minecraft version.</p></div></div>
           <div className="segmented java-mode"><button className={draft.javaMode === 'auto' ? 'active' : ''} onClick={() => patch({ javaMode: 'auto' })}>Automatic</button><button className={draft.javaMode === 'manual' ? 'active' : ''} onClick={() => patch({ javaMode: 'manual' })}>Custom path</button></div>
           {draft.javaMode === 'manual' && <label className="wide-label">Java executable path<input value={draft.javaPath} onChange={(event) => setDraft({ ...draft, javaPath: event.target.value })} onBlur={() => patch({ javaPath: draft.javaPath })} placeholder="C:\Program Files\Java\bin\javaw.exe" /></label>}
         </section>
+        </div>
       </div>
     </div>
   )

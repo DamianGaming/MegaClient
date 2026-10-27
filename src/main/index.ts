@@ -8,7 +8,7 @@ import { login, logout, restore } from './services/account'
 import { createInstance, deleteInstance, getInstance, openInstanceFolder, updateInstance, copyLocalMod } from './services/instances'
 import { getLoaderVersions, getMinecraftVersions } from './services/versions'
 import { installMod, installModpack, installPack, listMods, listPacks, removeMod, removePack, searchContent, setModEnabled, setPackEnabled, updateAllMods, updateMod } from './services/modrinth'
-import { CLIENT_VERSION, isGamePerformanceModeActive, launchInstance, openLaunchConsole } from './services/launcher'
+import { CLIENT_VERSION, isGamePerformanceModeActive, isInstanceLaunchActive, launchInstance, openLaunchConsole } from './services/launcher'
 import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
@@ -220,8 +220,8 @@ function createSplashWindow(): void {
   let resolveSplashReady: (() => void) | undefined
   splashReadyPromise = new Promise<void>((resolve) => { resolveSplashReady = resolve })
   splashWindow = new BrowserWindow({
-    width: 460,
-    height: 260,
+    width: 560,
+    height: 340,
     show: false,
     opacity: 0,
     frame: false,
@@ -465,7 +465,10 @@ function registerIpc(): void {
 
   ipcMain.handle('instances:create', (_event, input) => createInstance(input))
   ipcMain.handle('instances:update', (_event, id: string, patch) => updateInstance(id, patch))
-  ipcMain.handle('instances:delete', (_event, id: string) => deleteInstance(id))
+  ipcMain.handle('instances:delete', (_event, id: string) => {
+    if (isInstanceLaunchActive(id)) throw new Error('Close this Minecraft instance before deleting it.')
+    return deleteInstance(id)
+  })
   ipcMain.handle('instances:select', async (_event, id: string) => {
     await store.selectInstance(id)
     showLauncherActivity(getInstance(id))

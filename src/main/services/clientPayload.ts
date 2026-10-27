@@ -2,10 +2,9 @@ import { app } from 'electron'
 import { createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import AdmZip from 'adm-zip'
+import { readFabricModIdentity, verifyStagedClient } from './archiveChecks'
 import { metadataDirectory, modsDirectory } from './paths'
 
 const execFileAsync = promisify(execFile)
@@ -87,25 +86,24 @@ async function unhide(target: string): Promise<void> {
 // Changed size/mtime always invalidates the cache, and protected IDs are never cached.
 const unrelatedJarCache = new Map<string, { size: number; mtimeMs: number }>()
 
-async function removeLegacyOrConflictingClients(directory: string): Promise<void> {
+async function removeLegacyOrConflictingClients(directory: string, onProgress?: (done: number, total: number) => void): Promise<void> {
   const names = await fs.readdir(directory).catch(() => [] as string[])
-  for (const name of names) {
-    if (!name.toLowerCase().endsWith('.jar') || name.startsWith(PROTECTED_RUNTIME_PREFIX)) continue
+  const candidates = names.filter((name) => name.toLowerCase().endsWith('.jar') && !name.startsWith(PROTECTED_RUNTIME_PREFIX))
+  let checked = 0
+  for (const name of candidates) {
     const file = path.join(directory, name)
     try {
       const stat = await fs.stat(file)
       const cached = unrelatedJarCache.get(file)
       if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) continue
-      const archive = new AdmZip(file)
-      const entry = archive.getEntry('fabric.mod.json')
-      const metadata = entry ? JSON.parse(entry.getData().toString('utf8')) as { id?: string } : null
-      if (metadata?.id !== 'megaclient' && metadata?.id !== 'megaclient-launch-verifier') {
+      const modId = await readFabricModIdentity(file)
+      if (modId !== 'megaclient' && modId !== 'megaclient-launch-verifier') {
         unrelatedJarCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs })
         continue
       }
       unrelatedJarCache.delete(file)
       const hash = createHash('sha256').update(await fs.readFile(file)).digest('hex')
-      if (metadata?.id === 'megaclient' && hash !== EXPECTED_CLIENT_JAR_SHA256) {
+      if (modId === 'megaclient' && hash !== EXPECTED_CLIENT_JAR_SHA256) {
         throw new Error(`Another enabled mod (${name}) uses the protected megaclient mod ID. Remove it before launching MegaClient.`)
       }
       await unhide(file)
@@ -113,6 +111,9 @@ async function removeLegacyOrConflictingClients(directory: string): Promise<void
     } catch (error) {
       if (error instanceof Error && error.message.includes('uses the protected megaclient mod ID')) throw error
       // Unreadable third-party JARs are handled by Fabric's normal diagnostics.
+    } finally {
+      checked++
+      if (checked === candidates.length || checked % 8 === 0) onProgress?.(checked, candidates.length)
     }
   }
   while (unrelatedJarCache.size > 1200) {
@@ -192,44 +193,12 @@ async function bestEffortWipe(file: string): Promise<void> {
   }
 }
 
-function verifyFabricMetadata(jarPath: string): void {
-  const archive = new AdmZip(jarPath)
-  const metadataEntry = archive.getEntry('fabric.mod.json')
-  if (!metadataEntry) throw new Error('The protected MegaClient JAR is missing fabric.mod.json.')
-  const metadata = JSON.parse(metadataEntry.getData().toString('utf8')) as {
-    id?: string
-    version?: string
-    environment?: string
-    entrypoints?: { client?: string[] }
-    depends?: Record<string, string>
-  }
-  if (metadata.id !== 'megaclient' || metadata.version !== PROTECTED_CLIENT_VERSION) {
-    throw new Error(`The protected client metadata does not match MegaClient ${PROTECTED_CLIENT_VERSION}.`)
-  }
-  if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.includes('dev.velora.client.VeloraClient')) {
-    throw new Error('The protected MegaClient JAR has no valid client entrypoint.')
-  }
-  if (metadata.depends?.minecraft !== `~${PROTECTED_MINECRAFT_VERSION}` || metadata.depends?.fabricloader !== `>=${MINIMUM_PROTECTED_CLIENT_LOADER}`) {
-    throw new Error('The protected MegaClient JAR has unexpected Minecraft or Fabric requirements.')
-  }
-
-  const clientClass = archive.getEntry('dev/velora/client/VeloraClient.class')?.getData()
-  if (!clientClass || clientClass.length < 8 || clientClass.readUInt32BE(0) !== 0xcafebabe) {
-    throw new Error('The protected MegaClient entrypoint class is missing or invalid.')
-  }
-  if (clientClass.readUInt16BE(6) !== EXPECTED_CLIENT_CLASS_VERSION) {
-    throw new Error('The protected MegaClient JAR was not compiled for the expected Java 25 runtime.')
-  }
-  if (!archive.getEntry('velora.client.mixins.json')) {
-    throw new Error('The protected MegaClient JAR is missing its required mixin configuration.')
-  }
-}
 
 function normaliseJvmPath(file: string): string {
   return path.resolve(file).replaceAll('\\', '/')
 }
 
-export async function prepareClientPayload(instanceSlug: string): Promise<PreparedClientPayload> {
+export async function prepareClientPayload(instanceSlug: string, onProgress?: (done: number, total: number) => void): Promise<PreparedClientPayload> {
   const [bundle, verifier] = await Promise.all([
     fs.readFile(await findBundledResource('megaclient.bundle')),
     fs.readFile(await findBundledResource('launch-verifier.jar'))
@@ -270,7 +239,7 @@ export async function prepareClientPayload(instanceSlug: string): Promise<Prepar
   ])
   await hideAndRestrict(markerBase, true)
   await pruneStaleRuntimeFiles(mods)
-  await removeLegacyOrConflictingClients(mods)
+  await removeLegacyOrConflictingClients(mods, onProgress)
   await pruneStaleMarkerDirectories(markerBase)
 
   const runtimeDirectory = await fs.mkdtemp(path.join(markerBase, 'session-'))
@@ -298,15 +267,8 @@ export async function prepareClientPayload(instanceSlug: string): Promise<Prepar
       verifierSha256: EXPECTED_VERIFIER_SHA256
     }), { mode: 0o600, flag: 'wx' })
     await hideAndRestrict(manifestPath)
-    verifyFabricMetadata(jarPath)
-
-    const [writtenClient, writtenVerifier] = await Promise.all([fs.readFile(jarPath), fs.readFile(verifierPath)])
-    const writtenHash = createHash('sha256').update(writtenClient).digest('hex')
-    const writtenVerifierHash = createHash('sha256').update(writtenVerifier).digest('hex')
-    writtenClient.fill(0)
-    writtenVerifier.fill(0)
-    if (writtenHash !== EXPECTED_CLIENT_JAR_SHA256) throw new Error('The prepared MegaClient runtime JAR failed verification.')
-    if (writtenVerifierHash !== EXPECTED_VERIFIER_SHA256) throw new Error('The prepared MegaClient launch verifier failed verification.')
+    await verifyStagedClient(jarPath, verifierPath, hash, EXPECTED_CLIENT_JAR_SHA256, EXPECTED_VERIFIER_SHA256,
+      PROTECTED_CLIENT_VERSION, PROTECTED_MINECRAFT_VERSION, MINIMUM_PROTECTED_CLIENT_LOADER, EXPECTED_CLIENT_CLASS_VERSION)
   } catch (error) {
     jar.fill(0)
     verifier.fill(0)
@@ -342,24 +304,9 @@ export async function prepareClientPayload(instanceSlug: string): Promise<Prepar
 }
 
 
-export function validatePreparedClientPayloadSync(payload: PreparedClientPayload): void {
-  const client = readFileSync(payload.jarPath)
-  const verifier = readFileSync(payload.verifierPath)
-  try {
-    const clientHash = createHash('sha256').update(client).digest('hex')
-    const verifierHash = createHash('sha256').update(verifier).digest('hex')
-    if (clientHash !== EXPECTED_CLIENT_JAR_SHA256 || clientHash !== payload.sha256) {
-      throw new Error('The staged MegaClient runtime changed before Fabric could start.')
-    }
-    if (verifierHash !== EXPECTED_VERIFIER_SHA256) {
-      throw new Error('The staged MegaClient verifier changed before Fabric could start.')
-    }
-    if (!payload.jarPath.toLowerCase().endsWith('.jar') || !payload.verifierPath.toLowerCase().endsWith('.jar')) {
-      throw new Error('The protected runtime files no longer have valid Fabric JAR names.')
-    }
-    verifyFabricMetadata(payload.jarPath)
-  } finally {
-    client.fill(0)
-    verifier.fill(0)
-  }
+export async function validatePreparedClientPayload(payload: PreparedClientPayload): Promise<void> {
+  await verifyStagedClient(payload.jarPath, payload.verifierPath, payload.sha256,
+    EXPECTED_CLIENT_JAR_SHA256, EXPECTED_VERIFIER_SHA256,
+    PROTECTED_CLIENT_VERSION, PROTECTED_MINECRAFT_VERSION,
+    MINIMUM_PROTECTED_CLIENT_LOADER, EXPECTED_CLIENT_CLASS_VERSION)
 }

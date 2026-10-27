@@ -14,6 +14,16 @@ let cachedManifest: MojangManifest | null = null
 let cachedAt = 0
 const loaderVersionCache = new Map<string, { value: string[]; expiresAt: number }>()
 const LOADER_CACHE_TTL = 30 * 60_000
+// Maven metadata isn't guaranteed to be ordered numerically. The 26.x
+// NeoForge scheme also uses four numeric components (e.g. 26.2.0.12), which
+// semver.coerce() would accidentally truncate to 26.2.0.
+function compareMavenVersions(a: string, b: string): number {
+  const isPreview = (value: string): boolean => /-(?:alpha|beta|pre|rc|snapshot)[.-]?\d*/i.test(value)
+  if (isPreview(a) !== isPreview(b)) return isPreview(a) ? 1 : -1
+  const natural = b.localeCompare(a, 'en', { numeric: true, sensitivity: 'base' })
+  return natural || b.localeCompare(a)
+}
+
 
 export async function getMinecraftVersions(includeSnapshots: boolean): Promise<Array<{ id: string; type: string }>> {
   if (!cachedManifest || Date.now() - cachedAt > 10 * 60_000) {
@@ -57,13 +67,16 @@ export async function getLoaderVersions(loader: LoaderType, minecraftVersion: st
       const parser = new XMLParser({ ignoreAttributes: false })
       const parsed = parser.parse(xml) as { metadata?: { versioning?: { versions?: { version?: string | string[] } } } }
       const raw = parsed.metadata?.versioning?.versions?.version ?? []
-      const available = Array.isArray(raw) ? raw : [raw]
+      const available = (Array.isArray(raw) ? raw : [raw]).filter((value): value is string => typeof value === 'string')
 
       if (loader === 'forge') {
-        versions = available.filter((version) => version.startsWith(`${minecraftVersion}-`)).reverse()
+        versions = available.filter((version) => version.startsWith(`${minecraftVersion}-`))
+          .sort((a, b) => compareMavenVersions(a.slice(minecraftVersion.length + 1), b.slice(minecraftVersion.length + 1)))
       } else {
+        // 1.21.1 -> NeoForge 21.1.x; 26.2 -> NeoForge 26.2.0.x.
         const neoPrefix = minecraftVersion.startsWith('1.') ? minecraftVersion.slice(2) : minecraftVersion
-        versions = available.filter((version) => version === neoPrefix || version.startsWith(`${neoPrefix}.`) || version.startsWith(`${neoPrefix}-`)).reverse()
+        versions = available.filter((version) => version === neoPrefix || version.startsWith(`${neoPrefix}.`) || version.startsWith(`${neoPrefix}-`))
+          .sort(compareMavenVersions)
       }
     }
   } catch (error) {
