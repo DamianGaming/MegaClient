@@ -29,7 +29,7 @@ function StartupFailure({ title, detail }: { title: string; detail: string }) {
   return (
     <main className="startup-failure">
       <section>
-        <img src="./logo.png" alt="MegaClient" />
+        <img src="./logo-mark.png" alt="MegaClient" />
         <span>STARTUP ISSUE</span>
         <h1>{title}</h1>
         <p>{detail}</p>

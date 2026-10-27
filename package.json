@@ -1,7 +1,7 @@
 {
   "name": "megaclient-launcher",
   "productName": "MegaClient",
-  "version": "1.12.3",
+  "version": "1.12.4",
   "description": "A clean, fast Minecraft launcher with protected MegaClient, isolated instances, efficient background work and accessible modern navigation.",
   "type": "module",
   "main": "./out/main/index.js",

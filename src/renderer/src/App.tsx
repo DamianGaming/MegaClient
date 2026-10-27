@@ -323,7 +323,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.12.3')
+  const [version, setVersion] = useState('1.12.4')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -570,7 +570,7 @@ function App() {
       <Titlebar status={launching ? launchPhaseLabel(launchProgress.phase) : update?.state === 'downloading' ? 'Updating' : update?.state === 'checking' ? 'Checking updates' : update?.state === 'offline' ? 'Offline' : 'Ready'} />
       <aside className="sidebar">
         <button className="brand" onClick={() => { setAccountMenuOpen(false); setTab('home') }}>
-          <img src="./logo.png" alt="MegaClient" />
+          <img src="./logo-mark.png" alt="MegaClient" />
           <span><strong>MegaClient</strong><small>MegaStudios</small></span>
         </button>
         <nav aria-label="Launcher navigation">
@@ -774,7 +774,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.12.3',
+    launcherVersion: '1.12.4',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -818,7 +818,7 @@ export function SplashWindow() {
     <div className={`splash compact-splash separate-splash ${leaving ? 'is-leaving' : ''}`}>
       <PixelScene className="splash-scene" />
       <section className="splash-surface">
-        <div className="splash-mark"><img src="./logo.png" alt="" /></div>
+        <div className="splash-mark"><img src="./logo-mark.png" alt="" /></div>
         <div className="splash-copy">
           <strong>MegaClient</strong>
           <span>{progress.message}</span>
@@ -841,7 +841,7 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
         </div>
         <div className="login-panel">
           <div className="login-brand">
-            <div className="login-logo-wrap"><img src="./logo.png" alt="" /></div>
+            <div className="login-logo-wrap"><img src="./logo-mark.png" alt="" /></div>
             <div><strong>MegaClient</strong><small>by MegaStudios</small></div>
           </div>
           <div className="login-copy">
@@ -863,7 +863,7 @@ function LoginScreen({ version, loading, onLogin }: { version: string; loading: 
 function Titlebar({ status }: { status?: string } = {}) {
   return (
     <header className="titlebar">
-      <div className="titlebar-label"><img src="./logo.png" alt="" /><span>MegaClient</span></div>
+      <div className="titlebar-label"><img src="./logo-mark.png" alt="" /><span>MegaClient</span></div>
       {status && <div className="titlebar-status"><i className={status === 'Ready' ? 'ready' : ''} /><span>{status}</span></div>}
       <div className="drag-region" />
       <div className="window-buttons">
@@ -945,7 +945,7 @@ function HomeView({ account, instances, selected, launching, progress, onLaunch,
               <div className="recent-list">
                 {others.map((item) => (
                   <article key={item.id} className="recent-row">
-                    <div className="recent-icon">{item.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={22} />}</div>
+                    <div className="recent-icon">{item.customClient ? <img src="./logo-mark.png" alt="" /> : <Gamepad2 size={22} />}</div>
                     <div className="recent-copy"><strong>{item.name}</strong><small>{item.minecraftVersion} · {loaderLabel(item.loader)}</small></div>
                     <button className="primary recent-play" disabled={launching} onClick={() => onLaunchInstance(item.id)}><Play size={14} fill="currentColor" /> Play</button>
                   </article>
@@ -998,7 +998,7 @@ function InstancesView({ instances, selectedId, settings, onSelect, onChanged, n
           <article key={instance.id} className={`instance-card ${selectedId === instance.id ? 'selected' : ''}`} onClick={() => onSelect(instance.id)}>
             <div className="instance-art" aria-hidden="true" style={{ ['--hue' as any]: ({ vanilla: 145, fabric: 255, forge: 18, neoforge: 28 } as Record<string, number>)[instance.loader] ?? 255 }}><b>{instance.minecraftVersion}</b>{selectedId === instance.id && <span className="instance-check"><Check size={13} /> Selected</span>}</div>
             <div className="instance-card-top">
-              <div className="instance-icon big">{instance.customClient ? <img src="./logo.png" alt="" /> : <Gamepad2 size={25} />}</div>
+              <div className="instance-icon big">{instance.customClient ? <img src="./logo-mark.png" alt="" /> : <Gamepad2 size={25} />}</div>
               <div className="instance-actions">
                 <button title="Open folder" onClick={(event) => { event.stopPropagation(); void window.mega.instances.openFolder(instance.id) }}><FolderOpen size={16} /></button>
                 <button title="Delete" className="danger-icon" onClick={(event) => { event.stopPropagation(); setPendingDelete(instance) }}><Trash2 size={16} /></button>
@@ -1368,7 +1368,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         </div>
         <div className="choice-row" aria-label="Instance type">
           <button type="button" className={!custom ? 'chosen' : ''} onClick={() => setCustom(false)}><Gamepad2 /><span><strong>Standard</strong><small>Vanilla or a mod loader</small></span></button>
-          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="./logo.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2</small></span></button>
+          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="./logo-mark.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2</small></span></button>
         </div>
         <label className="field-label">Instance name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={48} autoFocus /></label>
         {!custom && (
@@ -1409,7 +1409,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         )}
         {custom && (
           <div className="client-note">
-            <img src="./logo.png" alt="" />
+            <img src="./logo-mark.png" alt="" />
             <div><strong>MegaClient {CLIENT_FALLBACK_VERSION}</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
