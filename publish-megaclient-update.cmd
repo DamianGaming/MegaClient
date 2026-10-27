@@ -160,6 +160,10 @@ call npm run typecheck
 if errorlevel 1 goto :failed
 
 echo.
+echo Running release tests...
+call npm run test:release
+if errorlevel 1 goto :failed
+
 echo Building MegaClient...
 call npm run build
 if errorlevel 1 goto :failed

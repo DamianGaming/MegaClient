@@ -71,6 +71,9 @@ Invoke-Checked 'npm' @('run', 'client:verify') 'Protected client validation fail
 Write-Host 'Checking Discord activity configuration...' -ForegroundColor Cyan
 Invoke-Checked 'npm' @('run', 'discord:verify') 'Discord activity configuration is incomplete'
 
+Write-Host 'Running release regression tests...' -ForegroundColor Cyan
+Invoke-Checked 'npm' @('run', 'test:release') 'Launcher release tests failed'
+
 Write-Host 'Checking and building the launcher...' -ForegroundColor Cyan
 Invoke-Checked 'npm' @('run', 'build') 'Launcher validation or build failed'
 

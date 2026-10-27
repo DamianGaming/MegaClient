@@ -27,7 +27,13 @@ test('archive parsing and verification do not block Electron main process', asyn
 test('archive worker validates metadata and detects tampered client without UI-thread work', async () => {
   // Execute the exact embedded worker source, with a small test ZIP adapter.
   // The production worker supplies the actual adm-zip module in its place.
-  const match = source.match(/const SOURCE = String\.raw`([\s\S]*?)`\s*\n\nlet worker:/)
+  // Git may check out TypeScript sources using Windows CRLF line endings.
+  // Match whitespace around the template boundary independently of newline style.
+  const workerPattern = /const SOURCE = String\.raw`([\s\S]*?)`\s*let worker:/
+  const match = source.match(workerPattern)
+  const windowsMatch = source.replace(/\r?\n/g, '\r\n').match(workerPattern)
+  assert.ok(windowsMatch, 'worker source must be available after Windows CRLF checkout')
+  assert.equal(windowsMatch[1].replace(/\r\n/g, '\n'), match?.[1]?.replace(/\r\n/g, '\n'))
   assert.ok(match, 'worker source must be available')
   const directory = await mkdtemp(path.join(tmpdir(), 'megaclient-archive-'))
   const mock = path.join(directory, 'zip.cjs')
