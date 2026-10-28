@@ -34,6 +34,19 @@ if (metadata.id !== 'megaclient' || metadata.version !== expectedVersion) {
 if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.length) {
   throw new Error('The selected JAR has no valid Fabric client entrypoint.')
 }
+// Check before replacing the bundle: a mismatched verifier would make Fabric
+// reject the new client even if the encrypted JAR itself passes SHA-256 checks.
+const verifierJar = new AdmZip(await fs.readFile(path.join(projectRoot, 'resources', 'client', 'launch-verifier.jar')))
+const verifierMetadataEntry = verifierJar.getEntry('fabric.mod.json')
+const verifierClassEntry = verifierJar.getEntry('studio/megastudios/megaclient/launchguard/LaunchVerifier.class')
+if (!verifierMetadataEntry || !verifierClassEntry) {
+  throw new Error('The launch verifier is incomplete; replace it before updating the client payload.')
+}
+const verifierMetadata = JSON.parse(verifierMetadataEntry.getData().toString('utf8'))
+if (verifierMetadata.id !== 'megaclient-launch-verifier' || verifierMetadata.depends?.megaclient !== `=${expectedVersion}` ||
+    !verifierClassEntry.getData().includes(Buffer.from(expectedVersion, 'utf8'))) {
+  throw new Error(`The launch verifier does not target MegaClient ${expectedVersion}; update the verifier before protecting this JAR.`)
+}
 
 const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${expectedMinecraft}::${expectedVersion}`]
 const key = createHash('sha256').update(parts.join('::'), 'utf8').digest()

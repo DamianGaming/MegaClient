@@ -46,7 +46,7 @@ test('archive worker validates metadata and detects tampered client without UI-t
     classBytes.writeUInt32BE(0xcafebabe, 0)
     classBytes.writeUInt16BE(69, 6)
     const metadata = {
-      id: 'megaclient', version: '0.14.2', environment: 'client',
+      id: 'megaclient', version: '0.14.3', environment: 'client',
       entrypoints: { client: ['dev.velora.client.VeloraClient'] },
       depends: { minecraft: '~26.2', fabricloader: '>=0.19.3' }
     }
@@ -73,7 +73,7 @@ test('archive worker validates metadata and detects tampered client without UI-t
     assert.equal(identity.identity, 'megaclient')
     const validRequest = {
       mode: 'validate', file: jar, verifier, clientHash, expectedClientHash: clientHash,
-      expectedVerifierHash: verifierHash, clientVersion: '0.14.2', minecraftVersion: '26.2',
+      expectedVerifierHash: verifierHash, clientVersion: '0.14.3', minecraftVersion: '26.2',
       minLoader: '0.19.3', classVersion: 69
     }
     assert.equal((await ask(2, validRequest)).error, undefined)

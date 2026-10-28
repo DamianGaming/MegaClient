@@ -28,6 +28,21 @@ const verifierHash = createHash('sha256').update(verifier).digest('hex')
 if (verifierHash !== expectedVerifier) {
   throw new Error(`Launch verifier integrity mismatch: ${verifierHash}`)
 }
+// A client release must update both the Fabric dependency and the verifier's
+// compiled version check. A stale verifier otherwise prevents the game loading.
+const verifierArchive = new AdmZip(verifier)
+const verifierMetadataEntry = verifierArchive.getEntry('fabric.mod.json')
+const verifierClassEntry = verifierArchive.getEntry('studio/megastudios/megaclient/launchguard/LaunchVerifier.class')
+if (!verifierMetadataEntry || !verifierClassEntry) {
+  throw new Error('The bundled MegaClient launch verifier is incomplete.')
+}
+const verifierMetadata = JSON.parse(verifierMetadataEntry.getData().toString('utf8'))
+if (verifierMetadata.id !== 'megaclient-launch-verifier' || verifierMetadata.depends?.megaclient !== `=${expectedVersion}`) {
+  throw new Error(`Launch verifier must depend on megaclient =${expectedVersion}.`)
+}
+if (!verifierClassEntry.getData().includes(Buffer.from(expectedVersion, 'utf8'))) {
+  throw new Error(`Launch verifier class does not contain the expected MegaClient version ${expectedVersion}.`)
+}
 
 const keyParts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${expectedMinecraft}::${expectedVersion}`]
 const key = createHash('sha256').update(keyParts.join('::'), 'utf8').digest()

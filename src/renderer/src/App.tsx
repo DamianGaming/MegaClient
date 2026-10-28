@@ -55,7 +55,7 @@ interface BootStatus {
   detail?: string
 }
 
-const CLIENT_FALLBACK_VERSION = '0.14.2'
+const CLIENT_FALLBACK_VERSION = '0.14.3'
 const LAUNCH_PHASES = ['profile', 'security', 'account', 'client', 'prepare', 'download', 'loader', 'java', 'assets', 'natives', 'launch'] as const
 
 function launchPhaseLabel(phase?: string): string {
@@ -323,7 +323,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.12.4')
+  const [version, setVersion] = useState('1.12.5')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -774,7 +774,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.12.4',
+    launcherVersion: '1.12.5',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
