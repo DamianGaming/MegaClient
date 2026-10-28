@@ -6,6 +6,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { readFabricModIdentity, verifyStagedClient } from './archiveChecks'
 import { metadataDirectory, modsDirectory } from './paths'
+import { protectedClientFor, PROTECTED_MINECRAFT_VERSIONS } from './protectedClientVersions'
 
 const execFileAsync = promisify(execFile)
 const MAGIC = Buffer.from('MCB1', 'ascii')
@@ -15,8 +16,6 @@ export const EXPECTED_VERIFIER_SHA256 = '37835a5c4dfb40ef1adf059c06780b18daa7442
 export const PROTECTED_CLIENT_VERSION = '0.14.3'
 export const PROTECTED_MINECRAFT_VERSION = '26.2'
 export const MINIMUM_PROTECTED_CLIENT_LOADER = '0.19.3'
-const KEY_PARTS = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${PROTECTED_MINECRAFT_VERSION}::${PROTECTED_CLIENT_VERSION}`] as const
-const EXPECTED_CLIENT_CLASS_VERSION = 69 // Java 25
 export const PROTECTED_RUNTIME_PREFIX = 'mc-runtime-'
 
 export interface PreparedClientPayload {
@@ -48,8 +47,9 @@ async function findBundledResource(fileName: string): Promise<string> {
   throw new Error(`The protected MegaClient resource ${fileName} is missing from the launcher installation.`)
 }
 
-function payloadKey(): Buffer {
-  return createHash('sha256').update(KEY_PARTS.join('::'), 'utf8').digest()
+function payloadKey(minecraftVersion: string, clientVersion: string): Buffer {
+  const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${minecraftVersion}::${clientVersion}`]
+  return createHash('sha256').update(parts.join('::'), 'utf8').digest()
 }
 
 async function hideAndRestrict(target: string, directory = false): Promise<void> {
@@ -103,7 +103,7 @@ async function removeLegacyOrConflictingClients(directory: string, onProgress?: 
       }
       unrelatedJarCache.delete(file)
       const hash = createHash('sha256').update(await fs.readFile(file)).digest('hex')
-      if (modId === 'megaclient' && hash !== EXPECTED_CLIENT_JAR_SHA256) {
+      if (modId === 'megaclient' && !PROTECTED_MINECRAFT_VERSIONS.some((version) => protectedClientFor(version).clientSha256 === hash)) {
         throw new Error(`Another enabled mod (${name}) uses the protected megaclient mod ID. Remove it before launching MegaClient.`)
       }
       await unhide(file)
@@ -198,16 +198,17 @@ function normaliseJvmPath(file: string): string {
   return path.resolve(file).replaceAll('\\', '/')
 }
 
-export async function prepareClientPayload(instanceSlug: string, onProgress?: (done: number, total: number) => void): Promise<PreparedClientPayload> {
+export async function prepareClientPayload(instanceSlug: string, minecraftVersion: string, onProgress?: (done: number, total: number) => void): Promise<PreparedClientPayload> {
+  const client = protectedClientFor(minecraftVersion)
   const [bundle, verifier] = await Promise.all([
-    fs.readFile(await findBundledResource('megaclient.bundle')),
-    fs.readFile(await findBundledResource('launch-verifier.jar'))
+    fs.readFile(await findBundledResource(client.bundle)),
+    fs.readFile(await findBundledResource(client.verifier))
   ])
   if (bundle.length < 48 || !bundle.subarray(0, 4).equals(MAGIC)) {
     verifier.fill(0)
     throw new Error('The bundled MegaClient payload is invalid or damaged.')
   }
-  if (createHash('sha256').update(verifier).digest('hex') !== EXPECTED_VERIFIER_SHA256) {
+  if (createHash('sha256').update(verifier).digest('hex') !== client.verifierSha256) {
     verifier.fill(0)
     throw new Error('The MegaClient launch verifier failed its integrity check.')
   }
@@ -216,13 +217,13 @@ export async function prepareClientPayload(instanceSlug: string, onProgress?: (d
   const encryptedWithTag = bundle.subarray(16)
   const tag = encryptedWithTag.subarray(encryptedWithTag.length - 16)
   const encrypted = encryptedWithTag.subarray(0, encryptedWithTag.length - 16)
-  const decipher = createDecipheriv('aes-256-gcm', payloadKey(), nonce)
+  const decipher = createDecipheriv('aes-256-gcm', payloadKey(client.minecraftVersion, client.clientVersion), nonce)
   decipher.setAAD(AAD)
   decipher.setAuthTag(tag)
   const jar = Buffer.concat([decipher.update(encrypted), decipher.final()])
 
   const hash = createHash('sha256').update(jar).digest('hex')
-  if (hash !== EXPECTED_CLIENT_JAR_SHA256) {
+  if (hash !== client.clientSha256) {
     jar.fill(0)
     verifier.fill(0)
     throw new Error('MegaClient payload integrity verification failed.')
@@ -263,12 +264,12 @@ export async function prepareClientPayload(instanceSlug: string, onProgress?: (d
       createdAt: new Date().toISOString(),
       client: path.basename(jarPath),
       verifier: path.basename(verifierPath),
-      clientSha256: EXPECTED_CLIENT_JAR_SHA256,
-      verifierSha256: EXPECTED_VERIFIER_SHA256
+      clientSha256: client.clientSha256,
+      verifierSha256: client.verifierSha256
     }), { mode: 0o600, flag: 'wx' })
     await hideAndRestrict(manifestPath)
-    await verifyStagedClient(jarPath, verifierPath, hash, EXPECTED_CLIENT_JAR_SHA256, EXPECTED_VERIFIER_SHA256,
-      PROTECTED_CLIENT_VERSION, PROTECTED_MINECRAFT_VERSION, MINIMUM_PROTECTED_CLIENT_LOADER, EXPECTED_CLIENT_CLASS_VERSION)
+    await verifyStagedClient(jarPath, verifierPath, hash, client.clientSha256, client.verifierSha256,
+      client.clientVersion, client.minecraftVersion, client.minimumFabricLoader, client.javaClassVersion)
   } catch (error) {
     jar.fill(0)
     verifier.fill(0)
@@ -304,9 +305,10 @@ export async function prepareClientPayload(instanceSlug: string, onProgress?: (d
 }
 
 
-export async function validatePreparedClientPayload(payload: PreparedClientPayload): Promise<void> {
+export async function validatePreparedClientPayload(payload: PreparedClientPayload, minecraftVersion: string): Promise<void> {
+  const client = protectedClientFor(minecraftVersion)
   await verifyStagedClient(payload.jarPath, payload.verifierPath, payload.sha256,
-    EXPECTED_CLIENT_JAR_SHA256, EXPECTED_VERIFIER_SHA256,
-    PROTECTED_CLIENT_VERSION, PROTECTED_MINECRAFT_VERSION,
-    MINIMUM_PROTECTED_CLIENT_LOADER, EXPECTED_CLIENT_CLASS_VERSION)
+    client.clientSha256, client.verifierSha256,
+    client.clientVersion, client.minecraftVersion,
+    client.minimumFabricLoader, client.javaClassVersion)
 }

@@ -9,7 +9,6 @@ import { getValidAccount } from './account'
 import {
   MINIMUM_PROTECTED_CLIENT_LOADER,
   PROTECTED_CLIENT_VERSION,
-  PROTECTED_MINECRAFT_VERSION,
   prepareClientPayload,
   validatePreparedClientPayload,
   type PreparedClientPayload
@@ -18,6 +17,7 @@ import { getInstance, updateInstance } from './instances'
 import { instanceDirectory, modsDirectory } from './paths'
 import { store } from './store'
 import { getLoaderVersions } from './versions'
+import { protectedClientFor } from './protectedClientVersions'
 import { ensureRequiredMod } from './modrinth'
 import { showLauncherActivity, showLaunchingActivity, showPlayingActivity } from './discordActivity'
 import { setGameplayUpdatePause } from './updater'
@@ -35,7 +35,6 @@ import {
 
 const MINIMUM_CLIENT_LOADER = MINIMUM_PROTECTED_CLIENT_LOADER
 export const CLIENT_VERSION = PROTECTED_CLIENT_VERSION
-const CLIENT_MINECRAFT_VERSION = PROTECTED_MINECRAFT_VERSION
 const ESCAPED_CLIENT_VERSION = CLIENT_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const CLIENT_VERSION_PATTERN = new RegExp(`(?:^|[\\s\\-:])megaclient(?:[\\s\\-:@]|$)[^\\r\\n]{0,80}\\b${ESCAPED_CLIENT_VERSION}\\b`, 'im')
 const CLIENT_MOD_PATTERN = new RegExp(`mod\\s+megaclient\\s+${ESCAPED_CLIENT_VERSION}`, 'im')
@@ -304,9 +303,10 @@ async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstan
   const refresh = instance.customClient || instance.autoUpdateLoader === true || !instance.loaderVersion
   if (!refresh) return instance
 
+  const minLoader = instance.customClient ? protectedClientFor(instance.minecraftVersion).minimumFabricLoader : MINIMUM_CLIENT_LOADER
   const oldVersion = instance.loaderVersion?.trim()
   const canUseOffline = oldVersion !== undefined && (!instance.customClient ||
-    (instance.loader === 'fabric' && semver.valid(oldVersion) !== null && semver.gte(oldVersion, MINIMUM_CLIENT_LOADER)))
+    (instance.loader === 'fabric' && semver.valid(oldVersion) !== null && semver.gte(oldVersion, minLoader)))
   let versions: string[]
   try {
     versions = await getLoaderVersions(instance.loader, instance.minecraftVersion)
@@ -317,10 +317,10 @@ async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstan
   }
 
   const version = instance.customClient
-    ? versions.find((candidate) => semver.valid(candidate) !== null && semver.gte(candidate, MINIMUM_CLIENT_LOADER))
+    ? versions.find((candidate) => semver.valid(candidate) !== null && semver.gte(candidate, minLoader))
     : versions[0]
   if (!version) {
-    if (instance.customClient) throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${MINIMUM_CLIENT_LOADER} or newer for Minecraft ${CLIENT_MINECRAFT_VERSION}.`)
+    if (instance.customClient) throw new Error(`MegaClient ${CLIENT_VERSION} requires Fabric Loader ${minLoader} or newer for Minecraft ${instance.minecraftVersion}.`)
     throw new Error(`No compatible ${instance.loader} loader was found for Minecraft ${instance.minecraftVersion}.`)
   }
   if (oldVersion === version) return instance
@@ -330,6 +330,7 @@ async function resolveLoader(instance: LauncherInstance): Promise<LauncherInstan
 async function prepareCustomClient(instance: LauncherInstance, mainWindow: BrowserWindow): Promise<PreparedClientPayload | null> {
   if (!instance.customClient) return null
 
+  const client = protectedClientFor(instance.minecraftVersion)
   const mods = modsDirectory(instance.slug)
   await fs.mkdir(mods, { recursive: true })
   const modNames = await fs.readdir(mods).catch(() => [] as string[])
@@ -344,7 +345,7 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
   try {
     const fabricApi = await ensureRequiredMod(instance.id, 'P7dR8mSH', (message, progress) => {
       emit(mainWindow, 'launch:progress', { phase: 'client', message, progress } satisfies LaunchProgress)
-    }, 24 * 60 * 60_000, '0.152.2')
+    }, 24 * 60 * 60_000, client.minimumFabricApi)
     appendConsole(`[MegaClient] Fabric API ${fabricApi.versionNumber ?? 'compatible build'} is ready`, 'success')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -354,13 +355,13 @@ async function prepareCustomClient(instance: LauncherInstance, mainWindow: Brows
 
   emit(mainWindow, 'launch:progress', { phase: 'client', message: 'Preparing MegaClient' } satisfies LaunchProgress)
   appendConsole('[MegaClient] Decrypting and verifying the protected runtime', 'muted')
-  const payload = await prepareClientPayload(instance.slug, (done, total) => {
+  const payload = await prepareClientPayload(instance.slug, instance.minecraftVersion, (done, total) => {
     emit(mainWindow, 'launch:progress', { phase: 'client', message: `Checking existing mods (${done}/${total})` } satisfies LaunchProgress)
     setConsoleState(`Checking mods (${done}/${total})`)
   })
   try {
     emit(mainWindow, 'launch:progress', { phase: 'client', message: 'Verifying MegaClient runtime' } satisfies LaunchProgress)
-    await validatePreparedClientPayload(payload)
+    await validatePreparedClientPayload(payload, instance.minecraftVersion)
     appendConsole(`[MegaClient] Protected runtime prepared for Fabric Loader ${instance.loaderVersion}`, 'success')
     return payload
   } catch (error) {
@@ -665,8 +666,9 @@ export async function launchInstance(mainWindow: BrowserWindow, instanceId: stri
   if (serverAddress) appendConsole(`[MegaClient] Direct connection: ${serverAddress}`, 'muted')
 
   let instance = getInstance(instanceId)
-  if (instance.customClient && (instance.minecraftVersion !== CLIENT_MINECRAFT_VERSION || instance.loader !== 'fabric')) {
-    instance = await updateInstance(instance.id, { minecraftVersion: CLIENT_MINECRAFT_VERSION, loader: 'fabric' })
+  if (instance.customClient) {
+    protectedClientFor(instance.minecraftVersion)
+    if (instance.loader !== 'fabric') throw new Error('MegaClient profiles require Fabric Loader.')
   }
   reportSetup('profile', `Checking ${instance.loader === 'vanilla' ? 'Minecraft' : instance.loader + ' loader'} compatibility`)
   instance = await resolveLoader(instance)

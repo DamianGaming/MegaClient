@@ -1,10 +1,10 @@
-# MegaClient Launcher 1.12.5
+# MegaClient Launcher 1.12.6
 
 MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, isolated game instances, mod and modpack management, third-party profile imports, server shortcuts, skins and capes, Discord activity and automatic updates.
 
 ## Versions and compatibility
 
-- Launcher: **1.12.5**
+- Launcher: **1.12.6**
 - Protected in-game MegaClient: **0.14.3** (latest provided JAR)
 - Minecraft: **26.2**
 - Minimum Fabric Loader for the protected client: **0.19.3**
@@ -34,7 +34,7 @@ npm run typecheck
 npm run build
 ```
 
-After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.5`.
+After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.6`.
 
 ## Security and import safety
 

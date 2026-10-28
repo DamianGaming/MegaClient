@@ -4,72 +4,59 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import AdmZip from 'adm-zip'
+import { readProtectedClientCatalog } from './client-catalog.mjs'
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const source = process.argv[2]
-if (!source) {
-  console.error('Usage: npm run client:protect -- "C:\\path\\to\\megaclient.jar"')
-  process.exit(1)
-}
-
+if (!source) throw new Error('Usage: npm run client:protect -- "C:\\path\\to\\megaclient.jar"')
 const jarPath = path.resolve(source)
+if (path.extname(jarPath).toLowerCase() !== '.jar') throw new Error('Select a .jar file.')
 const jar = await fs.readFile(jarPath)
-if (path.extname(jarPath).toLowerCase() !== '.jar' || jar.length < 1024) {
-  throw new Error('The selected client payload must be a valid non-empty .jar file.')
-}
-
-const servicePath = path.join(projectRoot, 'src', 'main', 'services', 'clientPayload.ts')
-let service = await fs.readFile(servicePath, 'utf8')
-const expectedVersion = service.match(/PROTECTED_CLIENT_VERSION\s*=\s*'([^']+)'/)?.[1]
-const expectedMinecraft = service.match(/PROTECTED_MINECRAFT_VERSION\s*=\s*'([^']+)'/)?.[1]
-if (!expectedVersion || !expectedMinecraft) throw new Error('Could not read protected client version constants from clientPayload.ts.')
+if (jar.length < 1024) throw new Error('The selected client JAR is empty or damaged.')
 
 const archive = new AdmZip(jar)
 const entry = archive.getEntry('fabric.mod.json')
-if (!entry) throw new Error('The selected JAR is missing fabric.mod.json.')
+if (!entry) throw new Error('Client JAR has no fabric.mod.json')
 const metadata = JSON.parse(entry.getData().toString('utf8'))
-if (metadata.id !== 'megaclient' || metadata.version !== expectedVersion) {
-  throw new Error(`The selected JAR must use mod ID megaclient and version ${expectedVersion} for this launcher build.`)
+const gameVersion = String(metadata.depends?.minecraft ?? '').replace(/^~/, '')
+const config = readProtectedClientCatalog(root).find((item) => item.minecraftVersion === gameVersion)
+if (!config) throw new Error(`The launcher does not support protected Minecraft ${gameVersion}.`)
+if (metadata.id !== 'megaclient' || metadata.version !== config.clientVersion ||
+    metadata.depends.fabricloader !== `>=${config.minimumFabricLoader}` ||
+    metadata.depends['fabric-api'] !== `>=${config.minimumFabricApi}+${gameVersion}`) {
+  throw new Error(`The supplied client is not the configured MegaClient ${config.clientVersion} for Minecraft ${gameVersion}.`)
 }
-if (metadata.environment !== 'client' || !metadata.entrypoints?.client?.length) {
-  throw new Error('The selected JAR has no valid Fabric client entrypoint.')
+const verifier = new AdmZip(await fs.readFile(path.join(root, 'resources/client', config.verifier)))
+const verifierMetadata = JSON.parse(verifier.getEntry('fabric.mod.json')?.getData()?.toString('utf8') ?? '{}')
+const verifierClass = verifier.getEntry('studio/megastudios/megaclient/launchguard/LaunchVerifier.class')?.getData()
+if (verifierMetadata.depends?.minecraft !== `~${gameVersion}` ||
+    verifierMetadata.depends?.megaclient !== `=${config.clientVersion}` ||
+    !verifierClass?.includes(Buffer.from(config.clientVersion))) {
+  throw new Error(`Bundled verifier for Minecraft ${gameVersion} is incompatible with this client.`)
 }
-// Check before replacing the bundle: a mismatched verifier would make Fabric
-// reject the new client even if the encrypted JAR itself passes SHA-256 checks.
-const verifierJar = new AdmZip(await fs.readFile(path.join(projectRoot, 'resources', 'client', 'launch-verifier.jar')))
-const verifierMetadataEntry = verifierJar.getEntry('fabric.mod.json')
-const verifierClassEntry = verifierJar.getEntry('studio/megastudios/megaclient/launchguard/LaunchVerifier.class')
-if (!verifierMetadataEntry || !verifierClassEntry) {
-  throw new Error('The launch verifier is incomplete; replace it before updating the client payload.')
-}
-const verifierMetadata = JSON.parse(verifierMetadataEntry.getData().toString('utf8'))
-if (verifierMetadata.id !== 'megaclient-launch-verifier' || verifierMetadata.depends?.megaclient !== `=${expectedVersion}` ||
-    !verifierClassEntry.getData().includes(Buffer.from(expectedVersion, 'utf8'))) {
-  throw new Error(`The launch verifier does not target MegaClient ${expectedVersion}; update the verifier before protecting this JAR.`)
-}
-
-const parts = ['MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${expectedMinecraft}::${expectedVersion}`]
-const key = createHash('sha256').update(parts.join('::'), 'utf8').digest()
+const key = createHash('sha256').update([
+  'MGC-PAYLOAD-2026', '8e1c2d6af90b47bc', 'MegaStudios', `${gameVersion}::${config.clientVersion}`
+].join('::')).digest()
 const nonce = randomBytes(12)
-const aad = Buffer.from('MegaClientPayload:v1', 'utf8')
 const cipher = createCipheriv('aes-256-gcm', key, nonce)
-cipher.setAAD(aad)
+cipher.setAAD(Buffer.from('MegaClientPayload:v1'))
 const encrypted = Buffer.concat([cipher.update(jar), cipher.final()])
-const tag = cipher.getAuthTag()
-const bundle = Buffer.concat([Buffer.from('MCB1', 'ascii'), nonce, encrypted, tag])
+const bundle = Buffer.concat([Buffer.from('MCB1'), nonce, encrypted, cipher.getAuthTag()])
 const hash = createHash('sha256').update(jar).digest('hex')
 
-const bundlePath = path.join(projectRoot, 'resources', 'client', 'megaclient.bundle')
-await fs.mkdir(path.dirname(bundlePath), { recursive: true })
-await fs.writeFile(bundlePath, bundle)
-
-const pattern = /export const EXPECTED_CLIENT_JAR_SHA256 = '[a-f0-9]{64}'/
-if (!pattern.test(service)) throw new Error('Could not update EXPECTED_CLIENT_JAR_SHA256 in clientPayload.ts.')
-service = service.replace(pattern, `export const EXPECTED_CLIENT_JAR_SHA256 = '${hash}'`)
-await fs.writeFile(servicePath, service, 'utf8')
+const catalogFile = path.join(root, 'src/main/services/protectedClientVersions.ts')
+let catalog = await fs.readFile(catalogFile, 'utf8')
+const entryPattern = new RegExp(`(  '${gameVersion.replaceAll('.', '\\.')}': \\{[\\s\\S]*?clientSha256: ')[a-f0-9]{64}(')`)
+if (!entryPattern.test(catalog)) throw new Error('Cannot update client checksum in protected client catalogue')
+catalog = catalog.replace(entryPattern, `$1${hash}$2`)
+// Keep the original 26.2 legacy export synchronized for existing tooling/tests.
+if (gameVersion === '26.2') {
+  const serviceFile = path.join(root, 'src/main/services/clientPayload.ts')
+  const service = await fs.readFile(serviceFile, 'utf8')
+  await fs.writeFile(serviceFile, service.replace(/(EXPECTED_CLIENT_JAR_SHA256 = ')[a-f0-9]{64}(')/, `$1${hash}$2`))
+}
+await fs.writeFile(path.join(root, 'resources/client', config.bundle), bundle)
+await fs.writeFile(catalogFile, catalog)
 jar.fill(0)
-
-console.log(`[MegaClient] Protected ${path.basename(jarPath)}`)
-console.log(`[MegaClient] Bundle: ${bundlePath}`)
-console.log(`[MegaClient] SHA-256: ${hash}`)
-console.log('[MegaClient] Run npm run client:verify and npm run build before packaging a release.')
+console.log(`[MegaClient] Protected Minecraft ${gameVersion} client ${config.clientVersion}; SHA-256 ${hash}`)
+console.log('[MegaClient] Run npm run client:verify, npm run test:release and npm run build before release.')

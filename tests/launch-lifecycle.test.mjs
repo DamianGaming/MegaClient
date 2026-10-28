@@ -19,7 +19,7 @@ test('compatible locally installed Fabric API is reused before downloading', () 
   assert.match(modrinth, /findLocalFabricApi\(instance, minimumVersion/)
   assert.match(modrinth, /metadata\.id !== 'fabric-api'/)
   assert.match(modrinth, /meetsMinimumVersion\(metadata\.version, minimumVersion\)/)
-  assert.match(source, /24 \* 60 \* 60_000, '0\.152\.2'/)
+  assert.match(source, /24 \* 60 \* 60_000, client\.minimumFabricApi/)
 })
 
 test('navigation and home use the new workspace and play-first layout', () => {

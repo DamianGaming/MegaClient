@@ -5,6 +5,7 @@ import type { LauncherInstance, LoaderType } from '../types'
 import { store } from './store'
 import { instanceDirectory, metadataDirectory, modsDirectory } from './paths'
 import { getLoaderVersions } from './versions'
+import { protectedClientFor } from './protectedClientVersions'
 
 const pendingSlugs = new Set<string>()
 
@@ -22,7 +23,8 @@ export async function createInstance(input: {
   autoUpdateLoader?: boolean
 }): Promise<LauncherInstance> {
   const name = input.name?.trim()
-  const minecraftVersion = input.customClient ? '26.2' : input.minecraftVersion?.trim()
+  const minecraftVersion = input.minecraftVersion?.trim() ?? ''
+  if (input.customClient) protectedClientFor(minecraftVersion)
   const loader: LoaderType = input.customClient ? 'fabric' : input.loader
   if (!name || name.length > 48) throw new Error('Instance names must be 1–48 characters long.')
   if (!minecraftVersion) throw new Error('Choose a Minecraft version before creating an instance.')
@@ -70,6 +72,10 @@ export async function updateInstance(id: string, patch: Partial<LauncherInstance
   const updated: LauncherInstance = { ...current, ...patch, id: current.id, slug: current.slug, updatedAt: new Date().toISOString() }
   if ((patch.loader && patch.loader !== current.loader) || (patch.minecraftVersion && patch.minecraftVersion !== current.minecraftVersion)) {
     if (patch.loaderVersion === undefined) updated.loaderVersion = undefined
+  }
+  if (updated.customClient) {
+    protectedClientFor(updated.minecraftVersion)
+    if (updated.loader !== 'fabric') throw new Error('MegaClient profiles require Fabric Loader.')
   }
   if (updated.loader === 'vanilla') { updated.loaderVersion = undefined; updated.autoUpdateLoader = false }
   await store.setInstances(data.instances.map((instance) => instance.id === id ? updated : instance))

@@ -16,7 +16,7 @@ const appSource = await readFile(new URL('../src/renderer/src/App.tsx', import.m
 test('archive parsing and verification do not block Electron main process', async () => {
   assert.match(clientSource, /await readFabricModIdentity\(file\)/)
   assert.match(clientSource, /await verifyStagedClient\(jarPath, verifierPath/)
-  assert.match(launcherSource, /await validatePreparedClientPayload\(payload\)/)
+  assert.match(launcherSource, /await validatePreparedClientPayload\(payload, instance\.minecraftVersion\)/)
   assert.doesNotMatch(clientSource, /readFileSync|new AdmZip\(/)
   assert.match(source, /new Worker\(SOURCE, \{ eval: true/)
   assert.match(securitySource, /scanInstanceMods\(instance, onProgress\)/)

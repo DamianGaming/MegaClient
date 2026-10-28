@@ -53,7 +53,9 @@ async function hideProtectedInstallationResources(): Promise<void> {
   const targets = [
     directory,
     path.join(directory, 'megaclient.bundle'),
-    path.join(directory, 'launch-verifier.jar')
+    path.join(directory, 'launch-verifier.jar'),
+    path.join(directory, 'megaclient-26.3.bundle'),
+    path.join(directory, 'launch-verifier-26.3.jar')
   ]
   await Promise.all(targets.map((target) =>
     execFileAsync('attrib.exe', ['+H', target], { windowsHide: true, timeout: 5_000 }).catch(() => undefined)

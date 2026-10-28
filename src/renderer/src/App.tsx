@@ -1273,11 +1273,11 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
     try {
       const items = await window.mega.app.getVersions(settings.showSnapshots)
       setVersions(items)
-      setMcVersion((current) => current && items.some((item) => item.id === current) ? current : (items[0]?.id ?? ''))
+      setMcVersion((current) => (current === '26.2' || current === '26.3') ? current : current && items.some((item) => item.id === current) ? current : (items[0]?.id ?? ''))
       if (!items.length) setVersionsError('No Minecraft versions were returned. Check your connection and try again.')
     } catch (error) {
       setVersions([])
-      setMcVersion('')
+      setMcVersion((current) => (current === '26.2' || current === '26.3') ? current : '')
       setVersionsError(errorMessage(error))
     } finally {
       setLoadingVersions(false)
@@ -1288,15 +1288,15 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
 
   useEffect(() => {
     if (custom) {
-      setName('MegaClient 26.2')
+      setName((current) => current.startsWith('MegaClient 26.') ? current : 'MegaClient 26.3')
       setLoader('fabric')
-      setMcVersion('26.2')
-    } else if (name === 'MegaClient 26.2') {
-      setName('New instance')
+      setMcVersion('26.3')
+    } else {
+      setName((current) => current === 'MegaClient 26.2' || current === 'MegaClient 26.3' ? 'New instance' : current)
       setLoader('vanilla')
-      setMcVersion(versions[0]?.id ?? '')
+      setMcVersion((current) => current || versions[0]?.id || '')
     }
-  }, [custom, versions])
+  }, [custom])
 
   useEffect(() => {
     if (loader === 'vanilla' || !mcVersion) {
@@ -1325,6 +1325,11 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
     })
     return () => { active = false }
   }, [loader, mcVersion])
+
+  const chooseProtectedVersion = (version: string) => {
+    setMcVersion(version)
+    if (name === 'MegaClient 26.2' || name === 'MegaClient 26.3') setName(`MegaClient ${version}`)
+  }
 
   const create = async () => {
     if (!name.trim()) return notify('Give the instance a name.', 'error')
@@ -1368,7 +1373,7 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
         </div>
         <div className="choice-row" aria-label="Instance type">
           <button type="button" className={!custom ? 'chosen' : ''} onClick={() => setCustom(false)}><Gamepad2 /><span><strong>Standard</strong><small>Vanilla or a mod loader</small></span></button>
-          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="./logo-mark.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2</small></span></button>
+          <button type="button" className={custom ? 'chosen client-choice' : ''} onClick={() => setCustom(true)}><img src="./logo-mark.png" alt="" /><span><strong>MegaClient</strong><small>Fabric · Minecraft 26.2 / 26.3</small></span></button>
         </div>
         <label className="field-label">Instance name<input value={name} onChange={(event) => setName(event.target.value)} maxLength={48} autoFocus /></label>
         {!custom && (
@@ -1408,9 +1413,14 @@ function CreateInstanceModal({ settings, onClose, onCreated, notify }: any) {
           </>
         )}
         {custom && (
+          <label className="field-label">MegaClient Minecraft version
+            <SelectMenu value={mcVersion} options={[{ value: '26.3', label: '26.3', description: 'Newest supported client' }, { value: '26.2', label: '26.2', description: 'Previous supported client' }]} onChange={chooseProtectedVersion} ariaLabel="MegaClient Minecraft version" />
+          </label>
+        )}
+        {custom && (
           <div className="client-note">
             <img src="./logo-mark.png" alt="" />
-            <div><strong>MegaClient {CLIENT_FALLBACK_VERSION}</strong><p>Minecraft 26.2 and everything it needs are prepared automatically.</p></div>
+            <div><strong>MegaClient {CLIENT_FALLBACK_VERSION}</strong><p>Minecraft {mcVersion} and its compatible Fabric dependencies are prepared automatically.</p></div>
             <span className="locked-chip"><Lock size={12} /> Protected</span>
           </div>
         )}
@@ -2134,7 +2144,7 @@ function SettingsView({ settings, setSettings, update, version, clientVersion, d
 
         <section className="settings-section" id="settings-updates">
           <div className="settings-title"><RefreshCw /><div><h3>Updates</h3></div></div>
-          <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2</strong></span></div>
+          <div className="version-summary"><span><small>Launcher</small><strong>v{version}</strong></span><span><small>Built-in client</small><strong>v{clientVersion}</strong></span><span><small>Minecraft</small><strong>26.2 / 26.3</strong></span></div>
           <SettingToggle title="Automatic update checks" description="Download updates in the background." checked={draft.checkUpdates} onChange={(value) => patch({ checkUpdates: value })} />
           <SettingToggle title="Show snapshots" description="Include snapshots in version lists." checked={draft.showSnapshots} onChange={(value) => patch({ showSnapshots: value })} />
           <div className="update-row update-status-row">
