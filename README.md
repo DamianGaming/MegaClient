@@ -1,14 +1,14 @@
-# MegaClient Launcher 1.12.6
+# MegaClient Launcher 1.12.7
 
 MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, isolated game instances, mod and modpack management, third-party profile imports, server shortcuts, skins and capes, Discord activity and automatic updates.
 
 ## Versions and compatibility
 
-- Launcher: **1.12.6**
-- Protected in-game MegaClient: **0.14.3** (latest provided JAR)
-- Minecraft: **26.2**
-- Minimum Fabric Loader for the protected client: **0.19.3**
-- Minimum Fabric API for the protected client: **0.152.2+26.2**
+- Launcher: **1.12.7**
+- Protected in-game MegaClient: **0.14.3** (refreshed JARs for both supported Minecraft versions)
+- Minecraft: **26.2 and 26.3**, each with separate protected client resources and verifier
+- Minimum Fabric Loader: **0.19.3 (26.2)** / **0.19.5 (26.3)**
+- Minimum Fabric API: **0.152.2+26.2 (26.2)** / **0.162.0+26.3 (26.3)**
 - Minecraft Java runtime: **25**
 
 Other Minecraft instances can use Vanilla, Fabric, Forge or NeoForge. Fabric Loader versions come from Fabric's live metadata with stable releases preferred; existing instance selections are not overwritten.
@@ -34,11 +34,11 @@ npm run typecheck
 npm run build
 ```
 
-After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.6`.
+After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.7`.
 
 ## Security and import safety
 
-The encrypted client is stored under `resources/client/megaclient.bundle`, and the launch verifier is under `resources/client/launch-verifier.jar`. The private JARs are written only to the selected isolated instance during launch and must remain available until Minecraft exits. The supplied client JAR is not a separately distributed loose resource.
+The protected 26.2 client is stored under `resources/client/megaclient.bundle` with verifier `launch-verifier.jar`; the 26.3 client is stored under `megaclient-26.3.bundle` with verifier `launch-verifier-26.3.jar`. The private JARs are written only to the selected isolated instance during launch and must remain available until Minecraft exits. The supplied client JAR is not a separately distributed loose resource.
 
 The profile importer never copies account credentials, tokens or third-party launcher sessions; it constrains destination paths to the chosen instance, skips symbolic links, limits archive sizes and preserves existing files when conflicts occur.
 
