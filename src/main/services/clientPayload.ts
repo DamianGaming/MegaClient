@@ -11,7 +11,7 @@ import { protectedClientFor, PROTECTED_MINECRAFT_VERSIONS } from './protectedCli
 const execFileAsync = promisify(execFile)
 const MAGIC = Buffer.from('MCB1', 'ascii')
 const AAD = Buffer.from('MegaClientPayload:v1', 'utf8')
-export const EXPECTED_CLIENT_JAR_SHA256 = '539bc91725807014735ea96249b501d69425a237d15148fa3a2ac367f59b3532'
+export const EXPECTED_CLIENT_JAR_SHA256 = '8322aba644feb3d9591d75331e602813dfa2182e70e91bd5d2f8e2f0efd5ea7c'
 export const EXPECTED_VERIFIER_SHA256 = '37835a5c4dfb40ef1adf059c06780b18daa744298cdcb8238967c9f23b438537'
 export const PROTECTED_CLIENT_VERSION = '0.14.3'
 export const PROTECTED_MINECRAFT_VERSION = '26.2'

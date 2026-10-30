@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 
-const USER_AGENT = 'MegaClient/1.12.10 (MegaStudios Minecraft Launcher)'
+const USER_AGENT = 'MegaClient/1.12.11 (MegaStudios Minecraft Launcher)'
 const jsonRequests = new Map<string, Promise<unknown>>()
 
 export async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
