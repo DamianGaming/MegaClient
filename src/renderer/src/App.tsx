@@ -323,7 +323,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.12.9')
+  const [version, setVersion] = useState('1.12.10')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -774,7 +774,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.12.9',
+    launcherVersion: '1.12.10',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -1860,7 +1860,7 @@ function WorldDownloadModal({ onClose, onDownload }: { onClose: () => void; onDo
 }
 
 const partnerServers = [
-  { id: 'skylabs', name: 'SkyLabs', address: 'play.sky-labs.co.uk' }
+  { id: 'willowsmp', name: 'WillowSMP', address: 'play.willowsmp.co.uk' }
 ] as const
 
 function ServersView({ selected, launching, notify }: { selected?: Instance; launching: boolean; notify: (message: string, kind?: ToastKind) => void }) {
