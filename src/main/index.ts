@@ -13,6 +13,7 @@ import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
 import { getPartnerServerStatus } from './services/servers'
+import { initHostedServers, listHostedServerVersions, hostedServerEvents, listHostedServers, createHostedServer, updateHostedServer, acceptHostedEula, removeHostedServer, startHostedServer, stopHostedServer, commandHostedServer, hostedServerFolder, hostedServerAddress, hasRunningHostedServers, shutdownHostedServers } from './services/hostedServers'
 import { checkForUpdates, configureAutomaticUpdates, installReadyUpdate, notifyWindowFocused, setupUpdater, updaterState } from './services/updater'
 import { configureDiscordActivity, isDiscordActivityConfigured, showLauncherActivity, shutdownDiscordActivity } from './services/discordActivity'
 import { cleanupStaleProtectedClientArtifacts } from './services/clientPayload'
@@ -533,6 +534,18 @@ function registerIpc(): void {
   ipcMain.handle('worlds:delete', (_event, instanceId: string, worldId: string) => deleteWorld(instanceId, worldId))
   ipcMain.handle('worlds:open-folder', async (_event, instanceId: string, worldId?: string) => shell.openPath(await worldFolder(instanceId, worldId)))
 
+  ipcMain.handle('hosting:list', () => listHostedServers())
+  ipcMain.handle('hosting:versions', (_event, software) => listHostedServerVersions(software))
+  ipcMain.handle('hosting:create', (_event, input) => createHostedServer(input))
+  ipcMain.handle('hosting:update', (_event, id: string, input) => updateHostedServer(id, input))
+  ipcMain.handle('hosting:remove', (_event, id: string, deleteFiles = false) => removeHostedServer(id, Boolean(deleteFiles)))
+  ipcMain.handle('hosting:accept-eula', (_event, id: string) => acceptHostedEula(id))
+  ipcMain.handle('hosting:start', (_event, id: string) => startHostedServer(id))
+  ipcMain.handle('hosting:stop', (_event, id: string) => stopHostedServer(id))
+  ipcMain.handle('hosting:command', (_event, id: string, command: string) => commandHostedServer(id, command))
+  ipcMain.handle('hosting:folder', (_event, id: string) => shell.openPath(hostedServerFolder(id)))
+  ipcMain.handle('hosting:copy', (_event, id: string) => { const item = listHostedServers().find(server => server.id === id); if (!item || item.relayStatus !== 'online') throw new Error('Public address is not ready.'); clipboard.writeText(hostedServerAddress(id)) })
+  ipcMain.handle('hosting:eula-link', () => shell.openExternal('https://aka.ms/MinecraftEULA'))
   ipcMain.handle('servers:copy-address', (_event, address: string) => clipboard.writeText(address))
   ipcMain.handle('servers:status', (_event, address: string, force = false) => getPartnerServerStatus(address, Boolean(force)))
 
@@ -561,6 +574,7 @@ async function startApplication(): Promise<void> {
 
   setSplashProgress(18, 'Loading your launcher', 'Reading local settings and protecting installed resources')
   await Promise.all([
+    initHostedServers(),
     store.initialize(),
     hideProtectedInstallationResources()
   ])
@@ -573,6 +587,7 @@ async function startApplication(): Promise<void> {
     .catch((error) => console.warn('[MegaClient] Stale protected runtime cleanup could not finish.', error))
   setSplashProgress(34, 'Preparing the interface', 'Starting your library, updates and account services')
   registerIpc()
+  hostedServerEvents((event) => { for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send('hosting:event', event) })
   createMainWindow()
   setupUpdater(sendUpdate, data.settings.checkUpdates)
 
@@ -603,5 +618,11 @@ Your Minecraft instances and files were not removed.`)
 process.on('unhandledRejection', (reason) => console.error('[MegaClient] Unhandled promise rejection:', reason))
 process.on('uncaughtException', (error) => console.error('[MegaClient] Uncaught main-process error:', error))
 
-app.on('before-quit', () => shutdownDiscordActivity())
+let hostedShutdownComplete = false
+app.on('before-quit', (event) => {
+  shutdownDiscordActivity()
+  if (hostedShutdownComplete || !hasRunningHostedServers()) return
+  event.preventDefault()
+  void shutdownHostedServers().finally(() => { hostedShutdownComplete = true; app.quit() })
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

@@ -1,10 +1,10 @@
-# MegaClient Launcher 1.12.17
+# MegaClient Launcher 1.12.20
 
 MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, isolated game instances, mod and modpack management, third-party profile imports, server shortcuts, skins and capes, Discord activity and automatic updates.
 
 ## Versions and compatibility
 
-- Launcher: **1.12.17**
+- Launcher: **1.12.20**
 - Protected in-game MegaClient: **0.14.3** (refreshed JARs for both supported Minecraft versions)
 - Minecraft: **26.2 and 26.3**, each with separate protected client resources and verifier
 - Minimum Fabric Loader: **0.19.3 (26.2)** / **0.19.5 (26.3)**
@@ -12,6 +12,10 @@ MegaClient is a Windows Minecraft Java Edition launcher with Microsoft sign-in, 
 - Minecraft Java runtime: **25**
 
 Other Minecraft instances can use Vanilla, Fabric, Forge or NeoForge. Fabric Loader versions come from Fabric's live metadata with stable releases preferred; existing instance selections are not overwritten.
+
+## Local server hosting (expanded in 1.12.20)
+
+The **Host Servers** tab manages local Vanilla, Paper, Purpur, Folia, Fabric and Custom JAR Java Edition servers. Versions are discovered from the corresponding official providers rather than being limited to 26.2/26.3. Hosting includes EULA confirmation, Java compatibility checks, memory and gameplay settings, console commands and start/stop controls. The host maintains world saves on their PC; the supplied existing MegaClient relay forwards guest TCP traffic over an outbound WebSocket so no router port forwarding is required. See [HOSTING_GUIDE.md](HOSTING_GUIDE.md) for prerequisites, limitations, and how to prepare the VPS/host PC. Existing partnered Servers/WillowSMP are unchanged.
 
 ## This release
 
@@ -34,7 +38,7 @@ npm run typecheck
 npm run build
 ```
 
-After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.17`.
+After testing the Windows installer and a real authenticated launch, double-click `publish-megaclient-update.cmd` and enter `1.12.20`.
 
 ## Security and import safety
 

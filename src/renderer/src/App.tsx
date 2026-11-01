@@ -45,7 +45,7 @@ import {
 // Keep the canvas renderer out of the initial launcher bundle until cosmetics opens.
 const Skin3DPreview = lazy(() => import('./Skin3DPreview'))
 
-type Tab = 'home' | 'instances' | 'browse' | 'manage' | 'servers' | 'cosmetics' | 'settings'
+type Tab = 'home' | 'instances' | 'browse' | 'manage' | 'servers' | 'hosting' | 'cosmetics' | 'settings'
 type Loader = 'vanilla' | 'forge' | 'neoforge' | 'fabric'
 type ToastKind = 'error' | 'success' | 'warning'
 
@@ -214,12 +214,13 @@ const navItems: Array<{ id: Tab; label: string; icon: typeof Home }> = [
   { id: 'browse', label: 'Discover', icon: Search },
   { id: 'manage', label: 'Manage', icon: Layers3 },
   { id: 'servers', label: 'Servers', icon: Server },
+  { id: 'hosting', label: 'Host Servers', icon: HardDrive },
   { id: 'cosmetics', label: 'Skin & cape', icon: Palette },
   { id: 'settings', label: 'Settings', icon: Settings }
 ]
 
 const navGroups: Array<{ label: string; items: Tab[] }> = [
-  { label: 'Play', items: ['home', 'instances'] },
+  { label: 'Play', items: ['home', 'instances', 'hosting'] },
   { label: 'Content', items: ['browse', 'manage', 'servers', 'cosmetics'] },
   { label: 'Launcher', items: ['settings'] }
 ]
@@ -323,7 +324,7 @@ function App() {
   const [instances, setInstances] = useState<Instance[]>([])
   const [selectedId, setSelectedId] = useState<string>()
   const [settings, setSettings] = useState<SettingsData | null>(null)
-  const [version, setVersion] = useState('1.12.17')
+  const [version, setVersion] = useState('1.12.20')
   const [clientVersion, setClientVersion] = useState(CLIENT_FALLBACK_VERSION)
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string>()
@@ -662,6 +663,7 @@ function App() {
         {tab === 'browse' && <BrowseView selected={selected} onChanged={bootstrap} notify={notify} />}
         {tab === 'manage' && <ManageView selected={selected} notify={notify} />}
         {tab === 'servers' && <ServersView selected={selected} launching={launching} notify={notify} />}
+        {tab === 'hosting' && <HostedServersView notify={notify} />}
         {tab === 'cosmetics' && <CosmeticsView account={account} notify={notify} />}
         {tab === 'settings' && settings && (
           <SettingsView settings={settings} setSettings={setSettings} update={update} version={version} clientVersion={clientVersion} discordConfigured={discordConfigured} notify={notify} />
@@ -774,7 +776,7 @@ export function SplashWindow() {
     value: 8,
     message: 'Starting MegaClient',
     detail: 'Preparing the secure launcher',
-    launcherVersion: '1.12.17',
+    launcherVersion: '1.12.20',
     clientVersion: CLIENT_FALLBACK_VERSION
   })
   const [visualProgress, setVisualProgress] = useState(8)
@@ -1857,6 +1859,186 @@ function WorldDownloadModal({ onClose, onDownload }: { onClose: () => void; onDo
       </div>
     </div>
   )
+}
+
+interface LocalHostedServer {
+  id: string
+  name: string
+  slug: string
+  minecraftVersion: string
+  software: 'vanilla' | 'paper' | 'purpur' | 'folia' | 'fabric' | 'custom'
+  port: number
+  memoryMb: number
+  maxPlayers: number
+  motd: string
+  difficulty: 'peaceful' | 'easy' | 'normal' | 'hard'
+  gamemode: 'survival' | 'creative' | 'adventure' | 'spectator'
+  viewDistance: number
+  javaPath: string
+  eulaAccepted: boolean
+  status: 'stopped' | 'installing' | 'starting' | 'running' | 'stopping' | 'error'
+  relayStatus: 'offline' | 'connecting' | 'online'
+  address?: string
+  players: number
+  error?: string
+  logs: string[]
+}
+
+const hostedSoftwareNames: Record<LocalHostedServer['software'], string> = {
+  vanilla: 'Vanilla', paper: 'Paper', purpur: 'Purpur', folia: 'Folia', fabric: 'Fabric', custom: 'Custom JAR'
+}
+const serverDefaults = {
+  name: '', slug: '', minecraftVersion: '26.3', software: 'vanilla', port: 25565,
+  memoryMb: 3072, maxPlayers: 8, motd: 'Hosted with MegaClient',
+  difficulty: 'normal', gamemode: 'survival', viewDistance: 8, javaPath: ''
+} as const
+
+function HostedServersView({ notify }: { notify: (message: string, kind?: ToastKind) => void }) {
+  const [servers, setServers] = useState<LocalHostedServer[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editor, setEditor] = useState<'new' | 'edit' | null>(null)
+  const [form, setForm] = useState<Record<string, string | number>>({ ...serverDefaults })
+  const [busy, setBusy] = useState(false)
+  const [serverVersions, setServerVersions] = useState<string[]>([])
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [versionError, setVersionError] = useState('')
+  const [command, setCommand] = useState('')
+  const [progress, setProgress] = useState<Record<string, { message: string; percent: number }>>({})
+  const [stickToBottom, setStickToBottom] = useState(true)
+  const logRef = useRef<HTMLDivElement>(null)
+  const [eulaAgreed, setEulaAgreed] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [deleteFiles, setDeleteFiles] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
+  const refresh = useCallback(async () => {
+    const result = await window.mega.hosting.list() as LocalHostedServer[]
+    setServers(result)
+    setSelectedId(old => result.some(item => item.id === old) ? old : result[0]?.id ?? null)
+  }, [])
+  useEffect(() => {
+    void refresh().catch(error => notify(errorMessage(error), 'error'))
+    let timer: number | undefined
+    const unsubscribe = window.mega.hosting.onEvent(event => {
+      if (event.type === 'progress' && typeof event.percent === 'number') {
+        setProgress(old => ({ ...old, [event.id]: { message: event.message || 'Preparing files', percent: event.percent! } }))
+      }
+      if (timer !== undefined) return
+      timer = window.setTimeout(() => {
+        timer = undefined
+        void refresh().catch(() => undefined)
+      }, 160)
+    })
+    return () => { unsubscribe(); if (timer !== undefined) window.clearTimeout(timer) }
+  }, [refresh, notify])
+  // Query the official server project's version catalog. A slow response for a
+  // previously selected platform may never override the newest selection.
+  useEffect(() => {
+    if (!editor || form.software === 'custom') { setServerVersions([]); setVersionsLoading(false); setVersionError(''); return }
+    let active = true
+    setVersionsLoading(true)
+    setVersionError('')
+    void window.mega.hosting.versions(String(form.software)).then((versions: string[]) => {
+      if (!active) return
+      setServerVersions(versions)
+      setForm(previous => {
+        if (previous.software !== form.software || versions.includes(String(previous.minecraftVersion))) return previous
+        return { ...previous, minecraftVersion: versions[0] ?? String(previous.minecraftVersion) }
+      })
+    }).catch((error: unknown) => { if (active) { setServerVersions([]); setVersionError(errorMessage(error)) } })
+      .finally(() => { if (active) setVersionsLoading(false) })
+    return () => { active = false }
+  }, [editor, form.software])
+  const current = servers.find(item => item.id === selectedId)
+  useEffect(() => { setStickToBottom(true) }, [selectedId])
+  useEffect(() => {
+    const element = logRef.current
+    if (element && stickToBottom) element.scrollTop = element.scrollHeight
+  }, [current?.logs.length, current?.id, stickToBottom])
+  const operate = async (action: () => Promise<unknown>, success?: string) => {
+    if (busy) return
+    setBusy(true)
+    try { await action(); await refresh(); if (success) notify(success) }
+    catch (error) { notify(errorMessage(error), 'error') }
+    finally { setBusy(false) }
+  }
+  const edit = (server?: LocalHostedServer) => {
+    setForm(server ? {
+      name: server.name, slug: server.slug, minecraftVersion: server.minecraftVersion, software: server.software,
+      port: server.port, memoryMb: server.memoryMb, maxPlayers: server.maxPlayers, motd: server.motd,
+      difficulty: server.difficulty, gamemode: server.gamemode, viewDistance: server.viewDistance, javaPath: server.javaPath
+    } : { ...serverDefaults, port: 25565 + servers.length })
+    setEditor(server ? 'edit' : 'new')
+  }
+  const save = () => void operate(async () => {
+    if (editor === 'edit' && current) await window.mega.hosting.update(current.id, form)
+    else { const newServer = await window.mega.hosting.create(form) as LocalHostedServer; setSelectedId(newServer.id) }
+    setEditor(null)
+  }, editor === 'edit' ? 'Server settings saved.' : 'Local server created. You can start it when ready.')
+  const canEdit = current && ['stopped', 'error'].includes(current.status)
+  return <div className="page hosted-page">
+    <PageHeading title="Host Servers" description="Run Minecraft on your PC and give friends a simple address to join without port forwarding."
+      actions={<button className="primary" onClick={() => edit()}><Plus size={16} /> Create server</button>} />
+    <div className="hosted-layout">
+      <div className="hosted-list">
+        {servers.map(item => <button key={item.id} className={`hosted-item ${item.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}>
+          <span className="hosted-item-icon"><Server size={20} /></span>
+          <span className="hosted-item-copy"><strong>{item.name}</strong><small>{item.minecraftVersion} · {hostedSoftwareNames[item.software] ?? item.software}</small></span>
+          <span className={`hosted-dot ${item.status === 'running' ? 'online' : ''}`} title={item.status} />
+        </button>)}
+        {!servers.length && <div className="hosted-empty"><HardDrive size={27}/><strong>No local servers yet</strong><p>Create your first server to get started.</p></div>}
+      </div>
+      {current ? <div className="hosted-details">
+        <section className="panel hosted-summary">
+          <div className="hosted-headline"><div><h2>{current.name}</h2><p>{current.minecraftVersion} · {hostedSoftwareNames[current.software] ?? current.software} · {current.memoryMb / 1024} GB allocated</p></div><span className={`hosted-status ${current.status}`}>{current.status}</span></div>
+          <div className="hosted-address"><div><small>Join address</small><strong>{current.address || `${current.slug}.worlds.megastudios.org.uk`}</strong><small>{current.relayStatus === 'online' ? `Publicly available · ${current.players} player${current.players === 1 ? '' : 's'} online` : current.status === 'running' ? 'Connecting to public hosting…' : 'Available once the server starts'}</small></div><button className="secondary" disabled={current.relayStatus !== 'online'} onClick={() => void operate(() => window.mega.hosting.copy(current.id), 'Address copied.')}><Copy size={16}/></button></div>
+          {current.status === 'installing' && progress[current.id] && <div className="hosted-transfer"><span>{progress[current.id]?.message} · {progress[current.id]?.percent}%</span><div className="progress"><i style={{ width: `${progress[current.id]?.percent ?? 0}%` }}/></div></div>}
+          {current.error && <div className="notice compact-notice"><AlertTriangle size={17}/><div><strong>Server notice</strong><p>{current.error}</p></div></div>}
+          <div className="hosted-actions">
+            {['stopped','error'].includes(current.status) ? <button className="primary" disabled={busy} onClick={() => current.eulaAccepted ? void operate(() => window.mega.hosting.start(current.id)) : setEulaAgreed(true)}><Play size={16}/> Start server</button>
+              : <button className="secondary" disabled={busy || current.status === 'stopping' || current.status === 'installing'} onClick={() => void operate(() => window.mega.hosting.stop(current.id))}><Square size={15}/> Stop server</button>}
+            <button className="secondary" onClick={() => void operate(() => window.mega.hosting.folder(current.id))}><FolderOpen size={16}/> Open files</button>
+            <button className="secondary" disabled={!canEdit || busy} onClick={() => edit(current)}><Settings size={16}/> Settings</button>
+            <button className="secondary" disabled={!canEdit || busy} onClick={() => { setDeleteTarget(current.id); setDeleteFiles(false) }}><Trash2 size={16}/> Remove</button>
+          </div>
+          <p className="hosted-help">Your computer runs the world and must stay online. Players connect through the MegaClient relay. Use a Java release compatible with your Minecraft version. The first start downloads the selected server build, or uses your own JAR for Custom.</p>
+        </section>
+        <section className="panel hosted-console"><div className="panel-title"><span>Server console</span><small>{current.status === 'running' ? 'Live output' : 'Recent activity'}</small></div>
+          <div className="hosted-log" role="log" aria-live="off" ref={logRef} onScroll={event => { const el = event.currentTarget; setStickToBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{current.logs.length ? current.logs.map((line, index) => <div key={index}>{line}</div>) : <span>No console output yet. Start the server to see activity.</span>}<div ref={endRef}/></div>
+          <form className="hosted-command" onSubmit={event => { event.preventDefault(); const value = command.trim(); if (!value) return; void operate(() => window.mega.hosting.command(current.id, value)); setCommand('') }}>
+            <input aria-label="Server command" placeholder="Enter a server command…" value={command} disabled={current.status !== 'running' || busy} onChange={event => setCommand(event.target.value)} maxLength={300}/>
+            <button className="secondary" type="submit" disabled={current.status !== 'running' || !command.trim() || busy}>Send</button>
+          </form>
+        </section>
+      </div> : <div className="empty-state hosted-main-empty"><Server size={36}/><h2>Your own Minecraft server</h2><p>Choose a Minecraft version, name and memory limit. Worlds stay stored on your PC.</p><button className="primary" onClick={() => edit()}><Plus size={16}/> Create server</button></div>}
+    </div>
+    {editor && <div className="modal-backdrop" onPointerDown={() => !busy && setEditor(null)}><div className="modal hosted-modal" role="dialog" aria-modal="true" aria-label={editor === 'new' ? 'Create local server' : 'Edit local server'} onPointerDown={event => event.stopPropagation()}>
+      <div className="modal-header"><div><small>LOCAL HOSTING</small><h2>{editor === 'new' ? 'Create a Minecraft server' : 'Server settings'}</h2></div><button onClick={() => setEditor(null)} aria-label="Close" disabled={busy}><X/></button></div>
+      <div className="hosted-form">
+        <label className="field-label">Server name<input value={String(form.name ?? '')} maxLength={48} onChange={event => setForm(p => ({ ...p, name: event.target.value, ...(editor === 'new' ? { slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-{2,}/g, '-').slice(0, 32) } : {}) }))}/></label>
+        <label className="field-label">Public address<input value={String(form.slug ?? '')} maxLength={32} onChange={event => setForm(p => ({ ...p, slug: event.target.value.toLowerCase() }))}/><small>.worlds.megastudios.org.uk</small></label>
+        <div className="form-grid"><label className="field-label">Minecraft version<><input list="hosted-minecraft-versions" value={String(form.minecraftVersion)} onChange={event => setForm(p => ({ ...p, minecraftVersion: event.target.value }))} placeholder="e.g. 1.21.11, 26.3"/><datalist id="hosted-minecraft-versions">{serverVersions.map(version => <option key={version} value={version}/>)}</datalist></>{versionsLoading && <small>Loading available versions…</small>}{versionError && <small>Version list unavailable: {versionError}. You can enter an exact version.</small>}</label><label className="field-label">Server type<select value={String(form.software)} onChange={event => setForm(p => ({ ...p, software: event.target.value, minecraftVersion: '26.3' }))}>{Object.entries(hostedSoftwareNames).map(([value, title]) => <option key={value} value={value}>{title}</option>)}</select></label></div>
+        {form.software === 'custom' && <p className="hosted-help">Custom server: after creating the profile, open its files and add your runnable server.jar. For Forge or NeoForge, complete their server installer in this folder first, and use a runnable JAR (not an installer JAR). Your chosen Minecraft version is for display and Java guidance.</p>}
+        <div className="form-grid"><label className="field-label">Memory (MB)<input type="number" min={1024} max={32768} step={256} value={Number(form.memoryMb)} onChange={event => setForm(p => ({ ...p, memoryMb: Number(event.target.value) }))}/></label><label className="field-label">Max players<input type="number" min={1} max={100} value={Number(form.maxPlayers)} onChange={event => setForm(p => ({ ...p, maxPlayers: Number(event.target.value) }))}/></label></div>
+        <div className="form-grid"><label className="field-label">Local port<input type="number" min={1024} max={65535} value={Number(form.port)} onChange={event => setForm(p => ({ ...p, port: Number(event.target.value) }))}/></label><label className="field-label">View distance<input type="number" min={2} max={32} value={Number(form.viewDistance)} onChange={event => setForm(p => ({ ...p, viewDistance: Number(event.target.value) }))}/></label></div>
+        <label className="field-label">Server description<input maxLength={100} value={String(form.motd)} onChange={event => setForm(p => ({ ...p, motd: event.target.value }))}/></label>
+        <div className="form-grid"><label className="field-label">Difficulty<select value={String(form.difficulty)} onChange={event => setForm(p => ({ ...p, difficulty: event.target.value }))}>{['peaceful','easy','normal','hard'].map(value => <option key={value} value={value}>{value}</option>)}</select></label><label className="field-label">Game mode<select value={String(form.gamemode)} onChange={event => setForm(p => ({ ...p, gamemode: event.target.value }))}>{['survival','creative','adventure','spectator'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>
+        <label className="field-label">Java executable (optional)<input placeholder="Automatic: java in PATH, or C:\Program Files\Java\bin\java.exe" value={String(form.javaPath ?? '')} onChange={event => setForm(p => ({ ...p, javaPath: event.target.value }))}/></label>
+      </div>
+      <div className="modal-footer"><button className="secondary" onClick={() => setEditor(null)} disabled={busy}>Cancel</button><button className="primary" disabled={busy || !String(form.name).trim() || !String(form.slug).trim()} onClick={save}>{busy ? 'Saving…' : editor === 'new' ? 'Create server' : 'Save changes'}</button></div>
+    </div></div>}
+    {eulaAgreed && current && <div className="modal-backdrop" onPointerDown={() => setEulaAgreed(false)}><div className="modal hosted-modal hosted-confirm" role="dialog" aria-modal="true" aria-label="Minecraft server EULA" onPointerDown={event => event.stopPropagation()}>
+      <div className="modal-header"><div><small>BEFORE YOU START</small><h2>Accept the Minecraft server EULA</h2></div><button onClick={() => setEulaAgreed(false)}><X/></button></div>
+      <p className="modal-description">Hosting Minecraft Java Edition requires accepting Mojang’s End User Licence Agreement. Please review it before continuing.</p>
+      <button type="button" className="hosted-eula-url" onClick={() => void window.mega.hosting.openEula()}>Read the Minecraft EULA</button>
+      <div className="modal-footer"><button className="secondary" onClick={() => setEulaAgreed(false)}>Cancel</button><button className="primary" onClick={() => { const id = current.id; setEulaAgreed(false); void operate(async () => { await window.mega.hosting.acceptEula(id); await window.mega.hosting.start(id) }) }}>I agree & start</button></div>
+    </div></div>}
+    {deleteTarget && <div className="modal-backdrop" onPointerDown={() => setDeleteTarget(null)}><div className="modal hosted-modal hosted-confirm" onPointerDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Remove hosted server">
+      <div className="modal-header"><div><small>REMOVE SERVER</small><h2>Remove from MegaClient?</h2></div><button onClick={() => setDeleteTarget(null)}><X/></button></div>
+      <p className="modal-description">By default this removes the server profile but keeps worlds and server files on your PC.</p>
+      <label className="hosted-checkbox"><input type="checkbox" checked={deleteFiles} onChange={event => setDeleteFiles(event.target.checked)}/> Also permanently delete its server folder and worlds</label>
+      <div className="modal-footer"><button className="secondary" onClick={() => setDeleteTarget(null)}>Cancel</button><button className="danger-button" onClick={() => void operate(async () => { await window.mega.hosting.remove(deleteTarget, deleteFiles); setDeleteTarget(null) })}>Remove</button></div>
+    </div></div>}
+  </div>
 }
 
 const partnerServers = [

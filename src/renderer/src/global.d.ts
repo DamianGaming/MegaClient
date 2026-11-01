@@ -69,6 +69,21 @@ declare global {
         delete(instanceId: string, worldId: string): Promise<void>
         openFolder(instanceId: string, worldId?: string): Promise<void>
       }
+      hosting: {
+        list(): Promise<any[]>
+        versions(software: string): Promise<string[]>
+        create(input: any): Promise<any>
+        update(id: string, input: any): Promise<any>
+        remove(id: string, deleteFiles?: boolean): Promise<void>
+        acceptEula(id: string): Promise<any>
+        start(id: string): Promise<any>
+        stop(id: string): Promise<any>
+        command(id: string, command: string): Promise<void>
+        folder(id: string): Promise<void>
+        copy(id: string): Promise<void>
+        openEula(): Promise<void>
+        onEvent(callback: (event: { type: string; id: string; message?: string; percent?: number }) => void): () => void
+      }
       servers: { copyAddress(address: string): Promise<void>; status(address: string, force?: boolean): Promise<any> }
       settings: { update(patch: any): Promise<any> }
       launchEvents: {

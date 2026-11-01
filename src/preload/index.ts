@@ -103,6 +103,25 @@ const api = {
     delete: (instanceId: string, worldId: string) => ipcRenderer.invoke('worlds:delete', instanceId, worldId),
     openFolder: (instanceId: string, worldId?: string) => ipcRenderer.invoke('worlds:open-folder', instanceId, worldId)
   },
+  hosting: {
+    list: () => ipcRenderer.invoke('hosting:list'),
+    versions: (software: string) => ipcRenderer.invoke('hosting:versions', software) as Promise<string[]>,
+    create: (input: unknown) => ipcRenderer.invoke('hosting:create', input),
+    update: (id: string, input: unknown) => ipcRenderer.invoke('hosting:update', id, input),
+    remove: (id: string, deleteFiles = false) => ipcRenderer.invoke('hosting:remove', id, deleteFiles),
+    acceptEula: (id: string) => ipcRenderer.invoke('hosting:accept-eula', id),
+    start: (id: string) => ipcRenderer.invoke('hosting:start', id),
+    stop: (id: string) => ipcRenderer.invoke('hosting:stop', id),
+    command: (id: string, command: string) => ipcRenderer.invoke('hosting:command', id, command),
+    folder: (id: string) => ipcRenderer.invoke('hosting:folder', id),
+    copy: (id: string) => ipcRenderer.invoke('hosting:copy', id),
+    openEula: () => ipcRenderer.invoke('hosting:eula-link'),
+    onEvent: (callback: (event: { type: string; id: string; message?: string; percent?: number }) => void) => {
+      const listener = (_: unknown, event: { type: string; id: string; message?: string; percent?: number }) => callback(event)
+      ipcRenderer.on('hosting:event', listener)
+      return () => ipcRenderer.removeListener('hosting:event', listener)
+    }
+  },
   servers: {
     copyAddress: (address: string) => ipcRenderer.invoke('servers:copy-address', address),
     status: (address: string, force = false) => ipcRenderer.invoke('servers:status', address, force)

@@ -1,3 +1,9 @@
+# MegaClient v1.12.18 — Build notes
+
+**Source-level checks:** 20/20 release tests passing locally; focused strict TypeScript check for hostedServers.ts passed. Updated protected 26.2 and 26.3 bundles decrypt byte-for-byte to the latest uploaded JARs. Full Electron build, real Java 25 Minecraft server launch and public guest join are **not yet verified** in this environment because npm dependencies and a Windows host are unavailable. Do not publish without those checks. The supplied relay ZIP was not modified.
+
+---
+
 # MegaClient 1.12.0 — validation report
 
 ## Changes reviewed
