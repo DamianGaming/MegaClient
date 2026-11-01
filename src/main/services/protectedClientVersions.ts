@@ -4,13 +4,13 @@ export const PROTECTED_CLIENTS = {
   '26.2': {
     minecraftVersion: '26.2', clientVersion: '0.14.3',
     bundle: 'megaclient.bundle', verifier: 'launch-verifier.jar',
-    clientSha256: 'afe0ca38d74a2c86742acbb2c3c64b811585a591086fe28834c195bca48b51d1', verifierSha256: '37835a5c4dfb40ef1adf059c06780b18daa744298cdcb8238967c9f23b438537',
+    clientSha256: '4c2bb12123c9365795afb1b613f5b57bf427518052416870be79a79e0217e18a', verifierSha256: '37835a5c4dfb40ef1adf059c06780b18daa744298cdcb8238967c9f23b438537',
     minimumFabricLoader: '0.19.3', minimumFabricApi: '0.152.2', javaClassVersion: 69
   },
   '26.3': {
     minecraftVersion: '26.3', clientVersion: '0.14.3',
     bundle: 'megaclient-26.3.bundle', verifier: 'launch-verifier-26.3.jar',
-    clientSha256: 'e8c64dfc4b99fe27b26c830bbacb3fd435d6f65701b52017ea8756a6381d1ef3', verifierSha256: 'e08f1b8771086c78c6b832c27250e67c76c650fa4442fe867ca2c78342c38840',
+    clientSha256: '471e205dfab8b866dc4b85eebdca56d4289b9406dc3e3860a803b474bd28e3eb', verifierSha256: 'e08f1b8771086c78c6b832c27250e67c76c650fa4442fe867ca2c78342c38840',
     minimumFabricLoader: '0.19.5', minimumFabricApi: '0.162.0', javaClassVersion: 69
   }
 } as const

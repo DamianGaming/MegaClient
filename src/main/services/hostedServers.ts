@@ -207,7 +207,7 @@ export async function removeHostedServer(id: string, deleteFiles = false): Promi
 export function hostedServerFolder(id: string): string { getConfig(id); return dirFor(id) }
 export function hostedServerAddress(id: string): string { return `${getConfig(id).slug}.${RELAY_DOMAIN}` }
 
-const META_AGENT = 'MegaClient/1.12.20 (+https://megastudios.org.uk; local Minecraft server manager)'
+const META_AGENT = 'MegaClient/1.12.21 (+https://megastudios.org.uk; local Minecraft server manager)'
 const SUPPORTED = ['vanilla', 'paper', 'purpur', 'folia', 'fabric', 'custom'] as const
 const validVersion = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._ -]{0,59}$/.test(v)
 const validDownload = (url: string, hosts: readonly string[]): boolean => {

@@ -1,4 +1,4 @@
-# MegaClient — Local Server Hosting (Launcher 1.12.20)
+# MegaClient — Local Server Hosting (Launcher 1.12.21)
 
 This release introduces a separate **Host Servers** navigation tab. The existing partnered **Servers** page and WillowSMP are unchanged.
 
