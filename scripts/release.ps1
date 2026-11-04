@@ -88,7 +88,9 @@ if (-not [string]::IsNullOrWhiteSpace(($Pending | Out-String).Trim())) {
 
 Invoke-Checked 'git' @('tag', $Tag) "Git could not create $Tag"
 Invoke-Checked 'git' @('push', 'origin', "refs/heads/${Branch}:refs/heads/${Branch}") "Git could not push branch $Branch"
-Invoke-Checked 'git' @('push', 'origin', "refs/tags/${Tag}:refs/tags/${Tag}") "Git could not push tag $Tag"
+$PublishedCommit = (& git rev-parse HEAD | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $PublishedCommit -notmatch '^[a-f0-9]{40}$') { throw 'Could not determine the release commit.' }
+Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'push-release-tag.mjs'), '--version', $Version, '--expected-commit', $PublishedCommit, '--repo', (Get-Location).Path, '--branch', $Branch) "Git could not verify/push tag $Tag"
 
 Write-Host "Release $Tag has been pushed successfully." -ForegroundColor Green
 Write-Host 'GitHub Actions will now build the Windows installer and updater files.' -ForegroundColor Green

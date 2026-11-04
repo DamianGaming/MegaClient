@@ -191,7 +191,8 @@ if errorlevel 1 goto :failed
 
 echo.
 echo Pushing the release tag...
-git push origin "refs/tags/!TAG!:refs/tags/!TAG!"
+for /f "delims=" %%H in ('git rev-parse HEAD') do set "PUBLISH_COMMIT=%%H"
+node "%SOURCE%\scripts\push-release-tag.mjs" --version "!VERSION!" --expected-commit "!PUBLISH_COMMIT!" --repo "%TARGET%" --branch main
 if errorlevel 1 goto :failed
 
 echo.
