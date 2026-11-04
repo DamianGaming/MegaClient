@@ -72,7 +72,7 @@ test('server platform discovery, stable Paper jar verification, Java guidance an
   assert.deepEqual(await hosted.listHostedServerVersions('fabric'), ['26.3','1.21.11'])
   assert.deepEqual(await hosted.listHostedServerVersions('custom'), [])
   assert.deepEqual(await hosted.listHostedServerVersions('vanilla'), ['26.3','1.21.11'])
-  const profile = await hosted.createHostedServer({ name: 'Paper test', slug: 'paper-test', software: 'paper', minecraftVersion: '1.21.11', port: 25577 })
+  const profile = await hosted.createHostedServer({ name: 'Paper test', slug: 'paper-test', software: 'paper', minecraftVersion: '1.21.11', port: 25577, javaPath: 'java' })
   assert.equal(profile.minecraftVersion, '1.21.11')
   assert.equal(profile.software, 'paper')
   await hosted.acceptHostedEula(profile.id)
@@ -96,7 +96,7 @@ test('server platform discovery, stable Paper jar verification, Java guidance an
   await hosted.acceptHostedEula(unstable.id)
   await assert.rejects(hosted.startHostedServer(unstable.id), /No stable folia/i)
 
-  const custom = await hosted.createHostedServer({ name: 'Custom server', slug: 'custom-test', software: 'custom', minecraftVersion: '1.12.2', port: 25578 })
+  const custom = await hosted.createHostedServer({ name: 'Custom server', slug: 'custom-test', software: 'custom', minecraftVersion: '1.12.2', port: 25578, javaPath: 'java' })
   await hosted.acceptHostedEula(custom.id)
   await assert.rejects(hosted.startHostedServer(custom.id), /Place your runnable server file/i)
   const customDir = path.join(folder, 'hosted-servers', custom.id)

@@ -105,6 +105,11 @@ const api = {
   },
   hosting: {
     list: () => ipcRenderer.invoke('hosting:list'),
+    duplicate: (id: string) => ipcRenderer.invoke('hosting:duplicate', id),
+    backups: (id: string) => ipcRenderer.invoke('hosting:backups', id),
+    createBackup: (id: string) => ipcRenderer.invoke('hosting:backup-create', id),
+    deleteBackup: (id: string, name: string) => ipcRenderer.invoke('hosting:backup-delete', id, name),
+    openBackupFolder: (id: string) => ipcRenderer.invoke('hosting:backup-folder', id),
     versions: (software: string) => ipcRenderer.invoke('hosting:versions', software) as Promise<string[]>,
     create: (input: unknown) => ipcRenderer.invoke('hosting:create', input),
     update: (id: string, input: unknown) => ipcRenderer.invoke('hosting:update', id, input),

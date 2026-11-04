@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { promisify } from 'node:util'
 import type { LoaderType } from './types'
 import { store } from './services/store'
@@ -13,7 +14,7 @@ import { getProfileData, switchCape, updateSkin } from './services/profile'
 import { deleteWorld, downloadWorldZip, importWorldZip, listWorlds, worldFolder } from './services/worlds'
 import { resourcePacksDirectory, shaderPacksDirectory } from './services/paths'
 import { getPartnerServerStatus } from './services/servers'
-import { initHostedServers, listHostedServerVersions, hostedServerEvents, listHostedServers, createHostedServer, updateHostedServer, acceptHostedEula, removeHostedServer, startHostedServer, stopHostedServer, commandHostedServer, hostedServerFolder, hostedServerAddress, hasRunningHostedServers, shutdownHostedServers } from './services/hostedServers'
+import { initHostedServers, listHostedServerVersions, hostedServerEvents, listHostedServers, createHostedServer, updateHostedServer, acceptHostedEula, removeHostedServer, startHostedServer, stopHostedServer, commandHostedServer, hostedServerFolder, hostedServerAddress, hasRunningHostedServers, shutdownHostedServers, duplicateHostedServer, listHostedBackups, createHostedBackup, deleteHostedBackup, hostedBackupsFolder } from './services/hostedServers'
 import { checkForUpdates, configureAutomaticUpdates, installReadyUpdate, notifyWindowFocused, setupUpdater, updaterState } from './services/updater'
 import { configureDiscordActivity, isDiscordActivityConfigured, showLauncherActivity, shutdownDiscordActivity } from './services/discordActivity'
 import { cleanupStaleProtectedClientArtifacts } from './services/clientPayload'
@@ -544,6 +545,11 @@ function registerIpc(): void {
   ipcMain.handle('hosting:stop', (_event, id: string) => stopHostedServer(id))
   ipcMain.handle('hosting:command', (_event, id: string, command: string) => commandHostedServer(id, command))
   ipcMain.handle('hosting:folder', (_event, id: string) => shell.openPath(hostedServerFolder(id)))
+  ipcMain.handle('hosting:duplicate', (_event, id: string) => duplicateHostedServer(id))
+  ipcMain.handle('hosting:backups', (_event, id: string) => listHostedBackups(id))
+  ipcMain.handle('hosting:backup-create', (_event, id: string) => createHostedBackup(id))
+  ipcMain.handle('hosting:backup-delete', (_event, id: string, name: string) => deleteHostedBackup(id, name))
+  ipcMain.handle('hosting:backup-folder', async (_event, id: string) => { const folder = hostedBackupsFolder(id); await fs.mkdir(folder, { recursive: true }); const error = await shell.openPath(folder); if (error) throw new Error(error) })
   ipcMain.handle('hosting:copy', (_event, id: string) => { const item = listHostedServers().find(server => server.id === id); if (!item || item.relayStatus !== 'online') throw new Error('Public address is not ready.'); clipboard.writeText(hostedServerAddress(id)) })
   ipcMain.handle('hosting:eula-link', () => shell.openExternal('https://aka.ms/MinecraftEULA'))
   ipcMain.handle('servers:copy-address', (_event, address: string) => clipboard.writeText(address))

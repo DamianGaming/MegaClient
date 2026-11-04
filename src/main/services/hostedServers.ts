@@ -41,6 +41,12 @@ export interface HostedServerConfig {
   difficulty: Difficulty
   gamemode: GameMode
   viewDistance: number
+  simulationDistance: number
+  spawnProtection: number
+  pvp: boolean
+  whitelist: boolean
+  allowFlight: boolean
+  hardcore: boolean
   javaPath: string
   eulaAccepted: boolean
   createdAt: string
@@ -49,6 +55,7 @@ export interface HostedServerConfig {
 export type HostedStatus = 'stopped' | 'installing' | 'starting' | 'running' | 'stopping' | 'error'
 export interface HostedServerView extends Omit<HostedServerConfig, 'identity'> {
   status: HostedStatus
+  requiredJava: number
   relayStatus: 'offline' | 'connecting' | 'online'
   address?: string
   players: number
@@ -97,7 +104,7 @@ function getConfig(id: string): HostedServerConfig {
 function view(config: HostedServerConfig): HostedServerView {
   const active = running.get(config.id)
   const { identity: _identity, ...data } = config
-  return { ...data, status: active?.status ?? 'stopped', relayStatus: active?.relayStatus ?? 'offline', address: active?.address,
+  return { ...data, requiredJava: minimumServerJava(config.minecraftVersion), status: active?.status ?? 'stopped', relayStatus: active?.relayStatus ?? 'offline', address: active?.address,
     players: active?.players ?? 0, error: active?.error, logs: [...(active?.logs ?? [])] }
 }
 let saveQueue: Promise<void> = Promise.resolve()
@@ -127,18 +134,29 @@ function sanitise(input: Partial<HostedServerConfig>, previous?: HostedServerCon
   const memoryMb = Number(input.memoryMb ?? previous?.memoryMb ?? 3072)
   const maxPlayers = Number(input.maxPlayers ?? previous?.maxPlayers ?? 8)
   const viewDistance = Number(input.viewDistance ?? previous?.viewDistance ?? 8)
-  if (![port, memoryMb, maxPlayers, viewDistance].every(Number.isInteger) || port < 1024 || port > 65535 || memoryMb < 1024 || memoryMb > 32768 || maxPlayers < 1 || maxPlayers > 100 || viewDistance < 2 || viewDistance > 32) {
+  const simulationDistance = Number(input.simulationDistance ?? previous?.simulationDistance ?? 6)
+  const spawnProtection = Number(input.spawnProtection ?? previous?.spawnProtection ?? 16)
+  if (![port, memoryMb, maxPlayers, viewDistance].every(Number.isInteger) || port < 1024 || port > 65535 || memoryMb < 1024 || memoryMb > 32768 || maxPlayers < 1 || maxPlayers > 100 || viewDistance < 2 || viewDistance > 32 || !Number.isInteger(simulationDistance) || simulationDistance < 2 || simulationDistance > 32 || !Number.isInteger(spawnProtection) || spawnProtection < 0 || spawnProtection > 256) {
     throw new Error('Port, RAM, player limit or view distance is outside the allowed range.')
   }
   const difficulty = input.difficulty ?? previous?.difficulty ?? 'normal'
   const gamemode = input.gamemode ?? previous?.gamemode ?? 'survival'
   if (!(['peaceful','easy','normal','hard'] as string[]).includes(difficulty) || !(['survival','creative','adventure','spectator'] as string[]).includes(gamemode)) throw new Error('Invalid game settings.')
   const motd = String(input.motd ?? previous?.motd ?? 'Hosted with MegaClient').trim().replace(/[\r\n]/g, ' ').slice(0, 100)
+  const boolSetting = (name: 'pvp' | 'whitelist' | 'allowFlight' | 'hardcore', fallback: boolean): boolean => {
+    const val = input[name] ?? previous?.[name] ?? fallback
+    if (typeof val !== 'boolean') throw new Error(`Invalid ${name} setting.`)
+    return val
+  }
+  const pvp = boolSetting('pvp', true)
+  const whitelist = boolSetting('whitelist', false)
+  const allowFlight = boolSetting('allowFlight', false)
+  const hardcore = boolSetting('hardcore', false)
   const javaPath = String(input.javaPath ?? previous?.javaPath ?? '').trim()
   if (javaPath.length > 700 || /[\x00\r\n]/.test(javaPath)) throw new Error('Invalid Java executable path.')
   return {
     id: previous?.id ?? randomUUID(), identity: previous?.identity ?? randomUUID(), name, slug, minecraftVersion: version,
-    software, port, memoryMb, maxPlayers, motd, difficulty, gamemode, viewDistance, javaPath,
+    software, port, memoryMb, maxPlayers, motd, difficulty, gamemode, viewDistance, simulationDistance, spawnProtection, pvp, whitelist, allowFlight, hardcore, javaPath,
     eulaAccepted: previous?.eulaAccepted ?? false, createdAt: previous?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString()
   }
 }
@@ -206,8 +224,76 @@ export async function removeHostedServer(id: string, deleteFiles = false): Promi
 }
 export function hostedServerFolder(id: string): string { getConfig(id); return dirFor(id) }
 export function hostedServerAddress(id: string): string { return `${getConfig(id).slug}.${RELAY_DOMAIN}` }
+/** Profiles can be duplicated without copying an existing world or its EULA consent. */
+export async function duplicateHostedServer(id: string): Promise<HostedServerView> {
+  const original = getConfig(id)
+  let suffix = 2
+  let slug = `${original.slug.slice(0, 27)}-${suffix}`
+  while ([...configs.values()].some(server => server.slug === slug)) {
+    suffix++
+    if (suffix > 999) throw new Error('Could not choose an unused server address.')
+    slug = `${original.slug.slice(0, 28 - String(suffix).length)}-${suffix}`
+  }
+  const usedPorts = new Set([...configs.values()].map(server => server.port))
+  let port = original.port
+  while (usedPorts.has(port) && port < 65535) port++
+  if (usedPorts.has(port)) throw new Error('No available local server port was found.')
+  return createHostedServer({ ...original, name: `${original.name.slice(0, 42)} Copy`, slug, port, eulaAccepted: false })
+}
 
-const META_AGENT = 'MegaClient/1.12.21 (+https://megastudios.org.uk; local Minecraft server manager)'
+const backupFolder = (id: string) => path.join(baseDir(), 'backups', id)
+export function hostedBackupsFolder(id: string): string { getConfig(id); return backupFolder(id) }
+export interface HostedBackup { name: string; sizeBytes: number; createdAt: string }
+export async function listHostedBackups(id: string): Promise<HostedBackup[]> {
+  getConfig(id)
+  const names = await fs.readdir(backupFolder(id)).catch(() => [] as string[])
+  const backups = await Promise.all(names.filter(name => /^world-\d{8}-\d{6}-[a-f0-9]{8}\.tar\.gz$/.test(name)).map(async name => {
+    const stat = await fs.stat(path.join(backupFolder(id), name)).catch(() => null)
+    return stat?.isFile() ? { name, sizeBytes: stat.size, createdAt: stat.birthtime.toISOString() } : null
+  }))
+  return backups.filter((item): item is HostedBackup => item !== null).sort((a, b) => b.name.localeCompare(a.name))
+}
+export async function createHostedBackup(id: string): Promise<HostedBackup> {
+  getConfig(id)
+  const runtime = running.get(id)
+  if (tasks.has(id) || runtime?.proc || (runtime && !['stopped', 'error'].includes(runtime.status))) throw new Error('Stop the server before backing up the world for a consistent snapshot.')
+  tasks.add(id)
+  try {
+    const directory = dirFor(id)
+    const properties = await fs.readFile(path.join(directory, 'server.properties'), 'utf8').catch(() => '')
+    const level = properties.match(/^level-name=(.+)$/m)?.[1]?.trim() ?? 'world'
+    if (!/^[a-zA-Z0-9_ -]{1,60}$/.test(level) || level === '.' || level === '..') throw new Error('The world folder name in server.properties is unsafe. Fix it before creating a backup.')
+    const folders = [level, `${level}_nether`, `${level}_the_end`]
+    const includes: string[] = []
+    for (const folder of folders) {
+      const stat = await fs.lstat(path.join(directory, folder)).catch(() => null)
+      if (stat?.isDirectory() && !stat.isSymbolicLink()) includes.push(folder)
+    }
+    if (!includes.length) throw new Error('No world folder found yet. Start the server and generate a world before creating a backup.')
+    if (properties) includes.push('server.properties')
+    const backupDir = backupFolder(id)
+    await fs.mkdir(backupDir, { recursive: true })
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+    const name = `world-${stamp}-${randomUUID().slice(0, 8)}.tar.gz`
+    const target = path.join(backupDir, name)
+    try {
+      log(id, '[Backup] Creating a compressed world backup…')
+      await execFileAsync('tar', ['-czf', target, '-C', directory, ...includes], { timeout: 30 * 60_000, windowsHide: true, maxBuffer: 1024 * 1024 })
+      const stat = await fs.stat(target)
+      if (stat.size < 40) throw new Error('Backup archive was unexpectedly empty.')
+      log(id, `[Backup] World backup saved: ${name}`)
+      return { name, sizeBytes: stat.size, createdAt: new Date().toISOString() }
+    } catch (error) { await fs.rm(target, { force: true }).catch(() => undefined); throw error }
+  } finally { tasks.delete(id) }
+}
+export async function deleteHostedBackup(id: string, name: string): Promise<void> {
+  getConfig(id)
+  if (!/^world-\d{8}-\d{6}-[a-f0-9]{8}\.tar\.gz$/.test(name)) throw new Error('Invalid backup name.')
+  await fs.rm(path.join(backupFolder(id), name), { force: true })
+}
+
+
+const META_AGENT = 'MegaClient/1.12.22 (+https://megastudios.org.uk; local Minecraft server manager)'
 const SUPPORTED = ['vanilla', 'paper', 'purpur', 'folia', 'fabric', 'custom'] as const
 const validVersion = (v: unknown): v is string => typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9._ -]{0,59}$/.test(v)
 const validDownload = (url: string, hosts: readonly string[]): boolean => {
@@ -354,7 +440,10 @@ async function writeProperties(config: HostedServerConfig): Promise<void> {
   const changes: Record<string, string> = {
     'server-ip': '127.0.0.1', 'server-port': String(config.port), 'online-mode': 'true', 'enable-rcon': 'false',
     'max-players': String(config.maxPlayers), 'motd': escapeProperty(config.motd), 'difficulty': config.difficulty,
-    'gamemode': config.gamemode, 'view-distance': String(config.viewDistance), 'enable-query': 'false'
+    'gamemode': config.gamemode, 'view-distance': String(config.viewDistance), 'simulation-distance': String(config.simulationDistance),
+    'spawn-protection': String(config.spawnProtection), 'pvp': String(config.pvp), 'white-list': String(config.whitelist),
+    'enforce-whitelist': String(config.whitelist), 'allow-flight': String(config.allowFlight), 'hardcore': String(config.hardcore),
+    'enable-query': 'false'
   }
   const lines = existing.split(/\r?\n/).filter(line => line && !Object.prototype.hasOwnProperty.call(changes, line.split('=')[0] ?? ''))
   for (const [key, value] of Object.entries(changes)) lines.push(`${key}=${value}`)
@@ -373,16 +462,118 @@ export function minimumServerJava(version: string): number {
   if (minor < 20 || (minor === 20 && patch <= 4)) return 17
   return 21
 }
+/** Runtimes are downloaded into MegaClient user data, never system-wide installed. */
+const runtimeDownloads = new Map<string, Promise<string>>()
+const runtimeFolder = (major: number) => path.join(dataDirectory(), 'java-runtimes', `temurin-${major}-${process.platform}-${process.arch}`)
+const javaFilename = () => process.platform === 'win32' ? 'java.exe' : 'java'
+
+export function parseServerJavaVersion(output: string): number {
+  const match = output.match(/(?:openjdk|java)\s+version\s+"?(?:1\.)?(\d+)(?:[.+_\s"-]|$)/i)
+    ?? output.match(/(?:openjdk)\s+(\d+)(?:[.+_\s"-]|$)/i)
+  return match ? Number(match[1]) : 0
+}
+async function detectedJava(java: string): Promise<number> {
+  try {
+    const output = await execFileAsync(java, ['-version'], { timeout: 9000, windowsHide: true })
+    return parseServerJavaVersion(`${output.stdout}\n${output.stderr}`)
+  } catch { return 0 }
+}
+async function managedJava(major: number): Promise<string | null> {
+  const base = runtimeFolder(major)
+  for (const root of [base, ...await fs.readdir(base).then(names => names.slice(0, 3).map(name => path.join(base, name))).catch(() => [])]) {
+    const executable = path.join(root, 'bin', javaFilename())
+    if (await fs.access(executable).then(() => true).catch(() => false) && await detectedJava(executable) === major) return executable
+  }
+  return null
+}
+
+/** Official Adoptium GA builds, checked with the published SHA-256 before extraction. */
+async function installServerJava(major: number, id: string): Promise<string> {
+  const key = `${process.platform}:${process.arch}:${major}`
+  const previous = runtimeDownloads.get(key)
+  if (previous) return previous
+  const task = (async () => {
+    const already = await managedJava(major)
+    if (already) return already
+    const platform = ({ win32: 'windows', linux: 'linux', darwin: 'mac' } as Record<string, string>)[process.platform]
+    const arch = ({ x64: 'x64', arm64: 'aarch64' } as Record<string, string>)[process.arch]
+    if (!platform || !arch) throw new Error('Automatic Java installation is not available for this operating system or processor. Choose a Java executable manually.')
+    log(id, `[Java] Java ${major} is missing. Downloading Eclipse Temurin ${major} automatically…`)
+    emit(id, 'progress', `Finding official Java ${major} runtime`, 0)
+    const releases = await getJson<Array<{ binaries?: Array<{ os?: string; architecture?: string; image_type?: string; package?: { link?: string; checksum?: string } }> }>>(
+      `https://api.adoptium.net/v3/assets/feature_releases/${major}/ga?architecture=${arch}&image_type=jdk&jvm_impl=hotspot&os=${platform}&page_size=2&vendor=eclipse`)
+    const item = releases.flatMap(r => r.binaries ?? []).find(b => b.os === platform && b.architecture === arch && b.image_type === 'jdk' && b.package?.link && /^[0-9a-f]{64}$/i.test(b.package?.checksum ?? ''))
+    const link = item?.package?.link
+    const checksum = item?.package?.checksum?.toLowerCase()
+    if (!link || !checksum || !/^https:\/\/github\.com\/adoptium\/temurin\d+-binaries\/releases\/download\//.test(link)) {
+      throw new Error(`No verified official Java ${major} archive is available for this system. Choose a Java executable manually.`)
+    }
+    const container = path.join(dataDirectory(), 'java-runtimes')
+    await fs.mkdir(container, { recursive: true })
+    const temp = path.join(container, `.java-${major}-${randomUUID()}`)
+    const archive = path.join(container, `.download-${randomUUID()}`)
+    try {
+      await fs.mkdir(temp, { recursive: true })
+      const response = await fetch(link, { signal: AbortSignal.timeout(240000), headers: { 'user-agent': META_AGENT } })
+      const finalHost = new URL(response.url || link).hostname
+      if (!response.ok || !response.body || !['github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'].includes(finalHost)) throw new Error('The official Java archive could not be downloaded securely.')
+      const length = Number(response.headers.get('content-length') ?? 0)
+      const limit = 450 * 1024 * 1024
+      if (length > limit) throw new Error('Java download exceeded the size limit.')
+      let total = 0
+      const sha = createHash('sha256')
+      const stream = Readable.fromWeb(response.body as never)
+      stream.on('data', (chunk: Buffer) => {
+        total += chunk.length
+        if (total > limit) stream.destroy(new Error('Java archive exceeded the size limit.'))
+        sha.update(chunk)
+        if (length && total % (2 * 1024 * 1024) < chunk.length) emit(id, 'progress', `Downloading Java ${major}`, Math.min(88, Math.round(total / length * 88)))
+      })
+      await pipeline(stream, createWriteStream(archive, { flags: 'wx' }))
+      if (sha.digest('hex') !== checksum) throw new Error('Java download checksum verification failed. Nothing was installed.')
+      emit(id, 'progress', `Extracting Java ${major}`, 92)
+      // Native tar runs outside the Electron event loop; never unpack a large JDK on the UI thread.
+      await execFileAsync('tar', ['-xf', archive, '-C', temp], { timeout: 120000, windowsHide: true, maxBuffer: 1024 * 1024 })
+      let java: string | null = null
+      for (const root of [temp, ...await fs.readdir(temp).then(names => names.map(name => path.join(temp, name)))]) {
+        const candidate = path.join(root, 'bin', javaFilename())
+        if (await detectedJava(candidate) === major) { java = candidate; break }
+      }
+      if (!java) throw new Error('Downloaded Java runtime could not be validated after extraction.')
+      const destination = runtimeFolder(major)
+      const existing = await managedJava(major)
+      if (existing) return existing
+      // A failed previous install may have left an incomplete managed runtime.
+      await fs.rm(destination, { recursive: true, force: true })
+      await fs.rename(temp, destination)
+      const installedJava = path.join(destination, path.relative(temp, java))
+      log(id, `[Java] Eclipse Temurin ${major} is ready (installed only for MegaClient).`)
+      emit(id, 'progress', `Java ${major} ready`, 100)
+      return installedJava
+    } finally {
+      await fs.rm(archive, { force: true }).catch(() => undefined)
+      await fs.rm(temp, { recursive: true, force: true }).catch(() => undefined)
+    }
+  })()
+  runtimeDownloads.set(key, task)
+  try { return await task } finally { runtimeDownloads.delete(key) }
+}
+
 async function validateJava(config: HostedServerConfig): Promise<string> {
-  const java = config.javaPath || 'java'
-  let output: { stdout: string; stderr: string }
-  const minimum = minimumServerJava(config.minecraftVersion)
-  try { output = await execFileAsync(java, ['-version'], { timeout: 9000, windowsHide: true }) }
-  catch { throw new Error(`Java ${minimum}+ was not found. Install a compatible JDK or choose its java.exe path in the server settings.`) }
-  const match = `${output.stdout}\n${output.stderr}`.match(/version\s+"?(1\.)?(\d+)(?:[.\s"+]|$)/i)
-  const installed = match ? Number(match[2]) : 0
-  if (installed < minimum) throw new Error(`Minecraft ${config.minecraftVersion} requires Java ${minimum} or newer. Found Java ${installed || 'unknown'}. Configure a compatible Java executable.`)
-  return java
+  const major = minimumServerJava(config.minecraftVersion)
+  if (config.javaPath) {
+    const installed = await detectedJava(config.javaPath)
+    if (installed < major) throw new Error(`The selected Java executable requires an update: Minecraft ${config.minecraftVersion} needs Java ${major}+. Found ${installed || 'no working Java'}. Clear the custom Java path to let MegaClient install Java automatically.`)
+    return config.javaPath
+  }
+  const cached = await managedJava(major)
+  if (cached) return cached
+  const system = await detectedJava('java')
+  // Use the matching Java generation: newer Java can break legacy server jars and plugins.
+  // An explicit custom Java path remains an override for users who know their server supports it.
+  if (system === major) return 'java'
+  try { return await installServerJava(major, config.id) }
+  catch (error) { throw new Error(`Automatic Java ${major} setup failed: ${error instanceof Error ? error.message : String(error)} You can also choose a compatible Java executable in the server settings.`) }
 }
 function freshRuntime(): RunningServer { return { proc: null, status: 'stopped', relayStatus: 'offline', players: 0, logs: [], stopping: false } }
 export async function startHostedServer(id: string): Promise<HostedServerView> {

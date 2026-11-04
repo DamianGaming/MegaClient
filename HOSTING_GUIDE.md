@@ -1,4 +1,4 @@
-# MegaClient — Local Server Hosting (Launcher 1.12.21)
+# MegaClient — Local Server Hosting (Launcher 1.12.22)
 
 This release introduces a separate **Host Servers** navigation tab. The existing partnered **Servers** page and WillowSMP are unchanged.
 
@@ -54,3 +54,12 @@ The source-level release test exercises relay frame forwarding against a simulat
 When using **Custom JAR**, first create the profile, select **Open files** and place an executable server JAR at `server.jar`. Installer-only JARs (such as Forge and NeoForge installers) are **not** runnable servers; prepare the server according to their own official instructions first. Server types that launch through scripts or Java argument files are not fully automated through Custom JAR. This is not a claim that every Minecraft version is available from every software provider. For unusual versions, enter the exact version and expect a clear error if the provider has no compatible server download.
 
 For modded servers, install matching server-side mods and their required APIs into the appropriate `mods` folder; Paper/Purpur/Folia use supported plugins in `plugins`. Keep worlds backed up and create a separate server profile before switching software type or game version.
+
+
+## v1.12.22: Automated Java and server management
+
+Leave **Custom Java executable** blank for automatic Java management. MegaClient checks for a matching Java feature version (avoiding newer Java releases that can break older Minecraft servers), reuses a verified runtime managed under the application user-data directory, or downloads a SHA-256-verified Eclipse Temurin GA JDK from Adoptium. No system-wide Java installer, administrative privileges, or manual Java setup is required for supported operating systems and architectures. If a chosen release is unavailable or the download fails, the panel explains the issue and lets users select a Java executable explicitly.
+
+In **Host Servers**, use **Overview & console** for status, launch controls, server logs and quick world-save/player/whitelist commands. Use **World backups** after stopping the server to save compressed snapshots of world folders and server.properties, browse backups, or delete an old backup. Backups live outside each server folder; extracting a snapshot for restoration is currently a manual process. **Duplicate** copies profile settings only, not worlds, and allocates another public slug and port.
+
+Extra server settings include simulation distance, PvP, whitelist, allow-flight, hardcore and spawn protection. All apply through server.properties at the next start. Existing saved profiles automatically receive safe defaults.

@@ -71,6 +71,11 @@ declare global {
       }
       hosting: {
         list(): Promise<any[]>
+        duplicate(id: string): Promise<any>
+        backups(id: string): Promise<Array<{ name: string; sizeBytes: number; createdAt: string }>>
+        createBackup(id: string): Promise<any>
+        deleteBackup(id: string, name: string): Promise<void>
+        openBackupFolder(id: string): Promise<void>
         versions(software: string): Promise<string[]>
         create(input: any): Promise<any>
         update(id: string, input: any): Promise<any>
